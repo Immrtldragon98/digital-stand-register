@@ -1,0 +1,31 @@
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/*.tsbuildinfo
+
+# Backend / Python
+__pycache__/
+*.py[cod]
+*$py.class
+backend/.env
+.venv/
+venv/
+
+# Environment / IDE
+.env
+.env.local
+.vscode/
+.idea/
+*.log
+
+# Local database / generated exports
+*.sqlite3
+*.db
+*.xlsx
+*.csv
+
+# OS
+.DS_Store
+Thumbs.db

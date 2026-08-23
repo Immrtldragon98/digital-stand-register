@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  background-color: #090d16;
+  color: #f1f5f9;
+}
+.input-class {
+  width: 100%;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: #f8fafc;
+  border-radius: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.875rem;
+  outline: none;
+}
+.input-class:focus {
+  border-color: #22d3ee;
+}
