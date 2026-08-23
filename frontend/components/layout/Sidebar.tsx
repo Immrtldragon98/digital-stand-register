@@ -2,21 +2,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Wrench, ShieldAlert, FileText, Layers, Settings, Database, Factory, Package } from "lucide-react";
+import { LayoutDashboard, Wrench, FileText, Layers, Factory, Package, History } from "lucide-react";
 
 export default function Sidebar() {
   const pathname = usePathname();
 
   const menuItems = [
-    { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-    { name: "Stand Area", href: "/stand-area", icon: Factory },
-    { name: "Operations", href: "/operations", icon: Wrench },
+    { name: "Home", href: "/dashboard", icon: LayoutDashboard },
+    { name: "Stand Status", href: "/stand-area", icon: Factory },
+    { name: "Change Stand", href: "/operations", icon: Wrench },
     { name: "Entry Guides", href: "/entry-guides", icon: Layers },
-    { name: "Transactions", href: "/transactions", icon: Database },
-    { name: "Inventory", href: "/inventory", icon: Package },
-    { name: "Activity Logs", href: "/activity", icon: ShieldAlert },
+    { name: "Materials", href: "/inventory", icon: Package },
+    { name: "History", href: "/activity", icon: History },
     { name: "Reports", href: "/reports", icon: FileText },
-    { name: "Settings", href: "/settings", icon: Settings },
   ];
 
   return (
@@ -24,7 +22,7 @@ export default function Sidebar() {
       <div>
         <div className="flex items-center gap-2 mb-8">
           <span className="w-3.5 h-3.5 bg-industrial-accent rounded-full"></span>
-          <span className="font-bold text-white tracking-wider text-sm">DSR PLATFORM</span>
+          <span className="font-bold text-white tracking-wide text-sm">STAND AREA</span>
         </div>
         <nav className="space-y-1">
           {menuItems.map((item) => {
@@ -34,10 +32,10 @@ export default function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition duration-150 ${
+                className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium transition duration-150 ${
                   isActive
                     ? "bg-industrial-dark text-industrial-accent border border-industrial-border"
-                    : "text-slate-400 hover:text-white hover:bg-industrial-dark/50"
+                    : "text-slate-300 hover:text-white hover:bg-industrial-dark/50"
                 }`}
               >
                 <Icon className="w-4 h-4" />
@@ -48,7 +46,7 @@ export default function Sidebar() {
         </nav>
       </div>
       <div className="pt-4 border-t border-industrial-border text-xs text-slate-500 text-center">
-        DSR Plant Core v2.4
+        Digital Stand Register
       </div>
     </aside>
   );
