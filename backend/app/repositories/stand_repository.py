@@ -1,9 +1,13 @@
 from sqlalchemy.orm import Session
 from app.models.stand_asset import StandAsset
 
+
 class StandRepository:
     def __init__(self, db: Session):
         self.db = db
+
+    def get_all(self) -> list[StandAsset]:
+        return self.db.query(StandAsset).order_by(StandAsset.code).all()
 
     def get_by_code(self, code: str) -> StandAsset | None:
         return self.db.query(StandAsset).filter(StandAsset.code == code).first()
