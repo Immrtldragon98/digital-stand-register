@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Wrench, FileText, Factory, Package, History } from "lucide-react";
+import { Home, Wrench, FileText, Factory, Package, History, Layers } from "lucide-react";
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -10,15 +10,16 @@ export default function Sidebar() {
     { name: "Home", href: "/dashboard", icon: Home },
     { name: "Stand Area", href: "/stand-area", icon: Factory },
     { name: "Stand Change", href: "/operations", icon: Wrench },
+    { name: "Entry Guides", href: "/entry-guides", icon: Layers },
     { name: "Materials", href: "/inventory", icon: Package },
     { name: "History", href: "/activity", icon: History },
     { name: "Reports", href: "/reports", icon: FileText },
   ];
 
   return (
-    <aside className="w-64 bg-industrial-card border-r border-industrial-border min-h-screen p-5 flex flex-col justify-between">
+    <aside className="w-56 xl:w-60 bg-industrial-card border-r border-industrial-border min-h-screen p-4 flex flex-col justify-between">
       <div>
-        <div className="flex items-center gap-2 mb-7">
+        <div className="flex items-center gap-2 mb-6 px-1">
           <span className="w-3 h-3 bg-blue-500 rounded-sm"></span>
           <span className="font-bold text-white tracking-wide text-sm">Digital Stand Register</span>
         </div>
@@ -28,14 +29,14 @@ export default function Sidebar() {
             const isActive = pathname === item.href;
             return (
               <Link key={item.href} href={item.href}
-                className={`flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium ${isActive ? "bg-blue-600 text-white" : "text-slate-300 hover:text-white hover:bg-slate-800/70"}`}>
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium ${isActive ? "bg-blue-600 text-white" : "text-slate-300 hover:text-white hover:bg-slate-800/70"}`}>
                 <Icon className="w-4 h-4" />{item.name}
               </Link>
             );
           })}
         </nav>
       </div>
-      <div className="pt-4 border-t border-industrial-border text-xs text-slate-500 text-center">© 2026 Digital Stand Register</div>
+      <div className="pt-3 border-t border-industrial-border text-[10px] text-slate-500 text-center">© 2026 Digital Stand Register</div>
     </aside>
   );
 }
