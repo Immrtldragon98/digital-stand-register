@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 from app.models.enums import StatusEnum
 
@@ -31,6 +33,7 @@ class ChangeStandSchema(BaseModel):
     installed_stand_code: str
     changed_by: str = Field(min_length=1, max_length=100)
     reason: str = Field(min_length=1, max_length=255)
+    changed_at: datetime | None = None
     notes: str | None = None
     removed_condition: str | None = None
     leakage: bool = False
