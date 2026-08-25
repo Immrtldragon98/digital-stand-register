@@ -3,53 +3,62 @@
 import { useEffect, useState } from "react";
 import Header from "@/components/layout/Header";
 import { fetchApi } from "@/lib/api";
-import { Activity as ActivityIcon } from "lucide-react";
+
+type Row = {
+  date: string;
+  activity: string;
+  stand: string;
+  done_by: string;
+  details: string;
+};
 
 export default function ActivityPage() {
-  const [logs, setLogs] = useState<any[]>([]);
+  const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    async function loadActivityLogs() {
-      try {
-        setError("");
-        const data = await fetchApi("/activity/");
-        setLogs(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Could not load history");
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadActivityLogs();
+    fetchApi("/activity/")
+      .then(setRows)
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load history"))
+      .finally(() => setLoading(false));
   }, []);
 
   return (
     <div className="flex-1 bg-industrial-dark min-h-screen text-slate-100 flex flex-col">
       <Header title="History" />
       <main className="p-4 md:p-6 flex-1">
-        {error && <div className="mb-4 p-4 rounded-lg border border-red-800 bg-red-950/40 text-red-300">{error}</div>}
-        {loading ? (
-          <div className="text-slate-400 text-sm">Loading history...</div>
-        ) : (
-          <div className="bg-industrial-card border border-industrial-border rounded-xl p-5">
-            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-              <ActivityIcon className="w-5 h-5 text-industrial-accent" />
-              Recent Work History
-            </h2>
-            <div className="space-y-3">
-              {logs.length > 0 ? logs.map((log, idx) => (
-                <div key={idx} className="p-4 bg-industrial-dark border border-industrial-border rounded-lg text-sm">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-white font-medium">{log.action || log.message || "Work recorded"}</p>
-                    <span className="text-xs text-slate-400">{new Date(log.timestamp || Date.now()).toLocaleString()}</span>
-                  </div>
-                </div>
-              )) : <div className="text-slate-500 py-6">No history recorded yet.</div>}
-            </div>
-          </div>
-        )}
+        <div className="mb-4">
+          <h1 className="text-xl font-bold text-white">Stand Work History</h1>
+          <p className="text-sm text-slate-400">Stand changes plus Gauging, Hydrotest and Ready completion only.</p>
+        </div>
+        {error && <div className="mb-3 text-red-300">{error}</div>}
+        <div className="overflow-x-auto border border-industrial-border rounded-lg bg-industrial-card">
+          <table className="w-full min-w-[820px] text-sm border-collapse">
+            <thead className="bg-slate-800 text-slate-200">
+              <tr>
+                <th className="border border-slate-700 px-3 py-2 text-left">Date & Time</th>
+                <th className="border border-slate-700 px-3 py-2 text-left">Activity</th>
+                <th className="border border-slate-700 px-3 py-2 text-left">Stand</th>
+                <th className="border border-slate-700 px-3 py-2 text-left">Done By</th>
+                <th className="border border-slate-700 px-3 py-2 text-left">Reason / Remarks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, i) => (
+                <tr key={`${row.date}-${i}`} className="even:bg-slate-900/40">
+                  <td className="border border-slate-800 px-3 py-2 whitespace-nowrap">{new Date(row.date).toLocaleString()}</td>
+                  <td className="border border-slate-800 px-3 py-2 font-medium">{row.activity}</td>
+                  <td className="border border-slate-800 px-3 py-2 font-semibold">{row.stand}</td>
+                  <td className="border border-slate-800 px-3 py-2">{row.done_by}</td>
+                  <td className="border border-slate-800 px-3 py-2">{row.details || "—"}</td>
+                </tr>
+              ))}
+              {!loading && rows.length === 0 && <tr><td colSpan={5} className="p-5 text-center text-slate-500">No stand work history yet.</td></tr>}
+              {loading && <tr><td colSpan={5} className="p-5 text-center text-slate-400">Loading...</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </main>
     </div>
   );
