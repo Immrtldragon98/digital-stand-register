@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.routes import auth, dashboard, operations, stands, entry_guides, activity, reports, inventory
+from app.api.routes import auth, dashboard, operations, stands, entry_guides, activity, reports, inventory, import_report
 
 api_router = APIRouter()
 
@@ -11,3 +11,4 @@ api_router.include_router(entry_guides.router, prefix="/entry-guides", tags=["En
 api_router.include_router(activity.router, prefix="/activity", tags=["Activity Logs"])
 api_router.include_router(reports.router, prefix="/reports", tags=["Reports"])
 api_router.include_router(inventory.router, prefix="/inventory", tags=["Inventory"])
+api_router.include_router(import_report.router, prefix="/import-report", tags=["Import Report"])
