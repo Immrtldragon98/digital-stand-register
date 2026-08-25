@@ -2,9 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import require_operator
 from app.database.session import get_db
 from app.models.entry_guide_asset import EntryGuideAsset
 from app.models.enums import EntryGuideConditionEnum, LocationEnum, StatusEnum
+from app.models.user import User
 from app.services.entry_guide_service import EntryGuideService
 from app.schemas.entry_guide import InstallEntryGuideSchema, RemoveEntryGuideSchema, UpdateEntryGuideConditionSchema
 
@@ -34,8 +36,8 @@ def list_guides(db: Session = Depends(get_db)):
 
 
 @router.post("/", status_code=201)
-def create_guide(payload: CreateEntryGuideSchema, db: Session = Depends(get_db)):
-    code = payload.code.strip()
+def create_guide(payload: CreateEntryGuideSchema, db: Session = Depends(get_db), _: User = Depends(require_operator)):
+    code = payload.code.strip().upper()
     if db.query(EntryGuideAsset).filter(EntryGuideAsset.code == code).first():
         raise HTTPException(status_code=409, detail="Entry guide already exists")
     guide = EntryGuideAsset(
@@ -50,7 +52,7 @@ def create_guide(payload: CreateEntryGuideSchema, db: Session = Depends(get_db))
 
 
 @router.post("/ready")
-def mark_guide_ready(payload: ReadyEntryGuideSchema, db: Session = Depends(get_db)):
+def mark_guide_ready(payload: ReadyEntryGuideSchema, db: Session = Depends(get_db), _: User = Depends(require_operator)):
     guide = db.query(EntryGuideAsset).filter(EntryGuideAsset.code == payload.guide_code).first()
     if not guide:
         raise HTTPException(status_code=404, detail="Entry guide not found")
@@ -63,15 +65,15 @@ def mark_guide_ready(payload: ReadyEntryGuideSchema, db: Session = Depends(get_d
 
 
 @router.post("/install")
-def install_guide(payload: InstallEntryGuideSchema, db: Session = Depends(get_db)):
-    return EntryGuideService(db).install_guide(payload.guide_code, payload.position_id, None, payload.operator_name)
+def install_guide(payload: InstallEntryGuideSchema, db: Session = Depends(get_db), user: User = Depends(require_operator)):
+    return EntryGuideService(db).install_guide(payload.guide_code, payload.position_id, user.id, payload.operator_name or user.username)
 
 
 @router.post("/remove")
-def remove_guide(payload: RemoveEntryGuideSchema, db: Session = Depends(get_db)):
-    return EntryGuideService(db).remove_guide(payload.guide_code, payload.removed_by, payload.removal_reason, None)
+def remove_guide(payload: RemoveEntryGuideSchema, db: Session = Depends(get_db), user: User = Depends(require_operator)):
+    return EntryGuideService(db).remove_guide(payload.guide_code, payload.removed_by, payload.removal_reason, user.id)
 
 
 @router.post("/condition")
-def update_guide_condition(payload: UpdateEntryGuideConditionSchema, db: Session = Depends(get_db)):
-    return EntryGuideService(db).update_condition(payload.guide_code, payload.condition, payload.notes, None)
+def update_guide_condition(payload: UpdateEntryGuideConditionSchema, db: Session = Depends(get_db), user: User = Depends(require_operator)):
+    return EntryGuideService(db).update_condition(payload.guide_code, payload.condition, payload.notes, user.id)
