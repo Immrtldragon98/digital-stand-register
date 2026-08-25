@@ -2,9 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import require_admin, require_operator
 from app.database.session import get_db
 from app.models.inventory_item import InventoryItem
 from app.models.inventory_transaction import InventoryTransaction
+from app.models.user import User
 from app.schemas.inventory import (
     InventoryCreate,
     InventoryOut,
@@ -58,7 +60,7 @@ def list_transactions(item_id: int | None = None, limit: int = 200, db: Session 
 
 
 @router.post("/", response_model=InventoryOut, status_code=status.HTTP_201_CREATED)
-def create_inventory(payload: InventoryCreate, db: Session = Depends(get_db)):
+def create_inventory(payload: InventoryCreate, db: Session = Depends(get_db), _: User = Depends(require_operator)):
     item = InventoryItem(**payload.model_dump())
     db.add(item)
     try:
@@ -71,7 +73,7 @@ def create_inventory(payload: InventoryCreate, db: Session = Depends(get_db)):
 
 
 @router.patch("/{item_id}", response_model=InventoryOut)
-def update_inventory(item_id: int, payload: InventoryUpdate, db: Session = Depends(get_db)):
+def update_inventory(item_id: int, payload: InventoryUpdate, db: Session = Depends(get_db), _: User = Depends(require_operator)):
     item = _get_item(db, item_id)
     if not item.is_active:
         raise HTTPException(409, "Archived inventory items cannot be edited")
@@ -87,7 +89,7 @@ def update_inventory(item_id: int, payload: InventoryUpdate, db: Session = Depen
 
 
 @router.post("/{item_id}/quantity", response_model=InventoryOut)
-def change_quantity(item_id: int, payload: InventoryQuantityChange, db: Session = Depends(get_db)):
+def change_quantity(item_id: int, payload: InventoryQuantityChange, db: Session = Depends(get_db), user: User = Depends(require_operator)):
     item = _get_item(db, item_id)
     if not item.is_active:
         raise HTTPException(409, "Archived inventory items cannot be adjusted")
@@ -104,7 +106,7 @@ def change_quantity(item_id: int, payload: InventoryQuantityChange, db: Session 
         quantity_before=before,
         quantity_change=payload.delta,
         quantity_after=after,
-        operator=payload.operator.strip(),
+        operator=(payload.operator.strip() or user.username),
         reason=payload.reason.strip(),
         transaction_type="IN" if payload.delta > 0 else "OUT",
     ))
@@ -114,7 +116,7 @@ def change_quantity(item_id: int, payload: InventoryQuantityChange, db: Session 
 
 
 @router.post("/{item_id}/set-quantity", response_model=InventoryOut)
-def set_quantity(item_id: int, payload: InventorySetQuantity, db: Session = Depends(get_db)):
+def set_quantity(item_id: int, payload: InventorySetQuantity, db: Session = Depends(get_db), user: User = Depends(require_operator)):
     item = _get_item(db, item_id)
     if not item.is_active:
         raise HTTPException(409, "Archived inventory items cannot be adjusted")
@@ -129,7 +131,7 @@ def set_quantity(item_id: int, payload: InventorySetQuantity, db: Session = Depe
         quantity_before=before,
         quantity_change=delta,
         quantity_after=payload.quantity,
-        operator=payload.operator.strip(),
+        operator=(payload.operator.strip() or user.username),
         reason=payload.reason.strip(),
         transaction_type="CORRECTION",
     ))
@@ -139,7 +141,7 @@ def set_quantity(item_id: int, payload: InventorySetQuantity, db: Session = Depe
 
 
 @router.delete("/{item_id}", response_model=InventoryOut)
-def archive_inventory(item_id: int, db: Session = Depends(get_db)):
+def archive_inventory(item_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     item = _get_item(db, item_id)
     if not item.is_active:
         return item
