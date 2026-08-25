@@ -4,25 +4,26 @@ export default function LineStatusGrid({ lines }: { lines: any[] }) {
   if (!lines?.length) return <div className="text-slate-500 text-sm">No running lines mapped.</div>;
 
   return (
-    <div className="space-y-3 mb-5">
+    <div className="grid gap-3">
       {lines.map((line) => (
-        <div key={line.id} className="bg-industrial-card border border-industrial-border rounded-xl p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-bold text-white">{line.name}</h3>
-            <span className="text-xs text-slate-400">10 stands</span>
-          </div>
-          <div className="overflow-x-auto pb-1">
-            <div className="flex gap-2 min-w-max">
-              {line.positions?.map((position: any) => (
-                <div key={position.id} className="w-28 shrink-0 rounded-lg border border-slate-700 bg-slate-950/50 px-3 py-2">
-                  <div className="text-[10px] text-slate-500">Pos {position.position_number}</div>
-                  <div className="text-base font-bold text-white mt-0.5">{position.current_stand?.code || "—"}</div>
-                  <div className="text-[10px] text-slate-400 mt-1">{position.current_stand?.campaign_hours ?? 0} h</div>
-                </div>
-              ))}
+        <section key={line.id} className="rounded-xl border border-slate-800 bg-slate-900/45 p-3">
+          <div className="grid grid-cols-[52px_repeat(10,minmax(72px,1fr))] gap-2 items-stretch">
+            <div className="rounded-lg bg-slate-950/70 border border-slate-800 flex flex-col items-center justify-center">
+              <div className="text-lg font-black text-blue-400">{line.name}</div>
+              <div className="text-[10px] text-emerald-400 mt-1">10 / 10</div>
             </div>
+            {line.positions?.map((position: any) => {
+              const stand = position.current_stand;
+              return (
+                <div key={position.id} className="min-w-0 rounded-lg border border-slate-700 bg-slate-950/45 px-2 py-2 hover:border-blue-500 transition-colors">
+                  <div className="text-[9px] uppercase tracking-wide text-slate-500">P{position.position_number}</div>
+                  <div className="text-sm font-bold text-white truncate mt-0.5">{stand?.code || "—"}</div>
+                  <div className="text-[9px] text-slate-400 mt-1 truncate">{stand?.campaign_hours ?? 0} h</div>
+                </div>
+              );
+            })}
           </div>
-        </div>
+        </section>
       ))}
     </div>
   );
