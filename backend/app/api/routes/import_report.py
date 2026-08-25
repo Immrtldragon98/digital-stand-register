@@ -3,6 +3,7 @@ import logging
 import os
 import re
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime
 
@@ -77,9 +78,11 @@ Only stands at positions 2,4,6,8,10 use entry guides.
 For a stand change extract old/new stand, line, position, people, reason, date/time/shift when present.
 For readiness reports create STAND_STATUS actions. If text says a test is pending, do NOT claim it is completed; add a warning if exact current stage is unclear.
 For entry guide stock summaries create ENTRY_GUIDE_SUMMARY with position and old_ready/new_ready counts.
-For entry guide changes create ENTRY_GUIDE_CHANGE and preserve New/Old condition.
+For entry guide changes create ENTRY_GUIDE_CHANGE and preserve New/Old condition. A line such as "Entry guide - 8(old) and 10(new)" means the report mentions those guide positions/conditions, but if installation/removal is not explicit keep confidence moderate and add a warning.
 Use confidence 0..1. Ambiguous facts belong in warnings, not guesses.
 REPORT:\n'''
+
+_WORD_NUMBERS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
 
 
 def _value(text, label):
@@ -92,6 +95,57 @@ def _stand_list(text, heading):
     return re.findall(r"\b(?:10|[1-9])(?:\.[1-9]|[A-E])\b", m.group(1), flags=re.I) if m else []
 
 
+def _count_word(value):
+    if not value:
+        return 0
+    value = value.strip().lower()
+    if value.isdigit():
+        return int(value)
+    return _WORD_NUMBERS.get(value, 0)
+
+
+def _entry_guide_actions(text, line, done_by, reason, date, shift):
+    actions = []
+    warnings = []
+
+    # Stock/readiness wording, e.g. "Entry guide for stand 10 :- ready two old set and one new."
+    summary_re = re.compile(
+        r"(?i)entry\s*guide\s*for\s*stand\s*(10|[2468])\s*[:-]?\s*ready\s*(?:(\d+|one|two|three|four|five|six)\s*old(?:\s*set)?s?)?(?:\s*(?:and|,)?\s*(\d+|one|two|three|four|five|six)\s*new(?:\s*set)?s?)?"
+    )
+    for m in summary_re.finditer(text):
+        actions.append({
+            "type": "ENTRY_GUIDE_SUMMARY",
+            "line": line,
+            "position": int(m.group(1)),
+            "old_ready": _count_word(m.group(2)),
+            "new_ready": _count_word(m.group(3)),
+            "done_by": done_by,
+            "date": date,
+            "shift": shift,
+            "confidence": 0.95,
+        })
+
+    # Short shift wording, e.g. "Entry guide - 8(old) and 10(Old)".
+    short = re.search(r"(?im)^\s*entry\s*guide\s*[-:]\s*(.+)$", text)
+    if short:
+        for pos, condition in re.findall(r"\b(10|[2468])\s*\(\s*(old|new)\s*\)", short.group(1), flags=re.I):
+            actions.append({
+                "type": "ENTRY_GUIDE_CHANGE",
+                "line": line,
+                "position": int(pos),
+                "guide_condition": condition.upper(),
+                "done_by": done_by,
+                "reason": reason,
+                "date": date,
+                "shift": shift,
+                "confidence": 0.78,
+            })
+        if re.search(r"\b(10|[2468])\s*\(\s*(old|new)\s*\)", short.group(1), flags=re.I):
+            warnings.append("Entry-guide positions were detected, but the message does not explicitly say whether each guide was installed, removed or only inspected. Review before updating.")
+
+    return actions, warnings
+
+
 def template_parse(text):
     actions = []
     warnings = []
@@ -101,6 +155,14 @@ def template_parse(text):
     if not line:
         wrm = re.search(r"(?i)WRM\s*#?\s*([123])", text)
         line = f"W{wrm.group(1)}" if wrm else None
+    done_by = _value(text, r"(?:Changed By|S\.I\.)")
+    reason = _value(text, r"Reason")
+    date = _value(text, r"Date")
+    if not date:
+        date_line = re.search(r"(?m)^\s*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})\s*$", text)
+        date = date_line.group(1) if date_line else None
+    shift = _value(text, r"Shift")
+
     if removed and fixed:
         pos = re.match(r"(10|[1-9])", fixed)
         actions.append({
@@ -109,27 +171,29 @@ def template_parse(text):
             "position": int(pos.group(1)) if pos else None,
             "stand_removed": removed.strip().upper(),
             "stand_fixed": fixed.strip().upper(),
-            "done_by": _value(text, r"(?:Changed By|S\.I\.)"),
-            "reason": _value(text, r"Reason"),
-            "date": _value(text, r"Date"),
+            "done_by": done_by,
+            "reason": reason,
+            "date": date,
             "time": _value(text, r"Time"),
-            "shift": _value(text, r"Shift"),
+            "shift": shift,
             "confidence": 0.95,
         })
+
     for heading, status in [("READY", "READY"), ("HYDROTEST", "HYDROTEST"), ("GAUGING", "GAUGING"), ("PENDING", "PENDING"), ("YET TO READY", "YET_TO_READY")]:
         for code in _stand_list(text, heading):
-            actions.append({"type": "STAND_STATUS", "stand": code.upper(), "status": status, "confidence": 0.95})
+            actions.append({"type": "STAND_STATUS", "stand": code.upper(), "status": status, "done_by": done_by, "confidence": 0.95})
+
+    guide_actions, guide_warnings = _entry_guide_actions(text, line, done_by, reason, date, shift)
+    actions.extend(guide_actions)
+    warnings.extend(guide_warnings)
+
     if not actions:
         warnings.append("No supported operation confidently detected by fallback parser.")
     return {"actions": actions, "warnings": warnings}
 
 
-def gemini_parse(text):
-    key = os.getenv("GEMINI_API_KEY")
-    if not key:
-        raise RuntimeError("GEMINI_API_KEY not configured")
-    model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+def _gemini_request(key, model, text):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model, safe='')}:generateContent"
     body = {
         "contents": [{"parts": [{"text": PROMPT + text}]}],
         "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json", "responseJsonSchema": SCHEMA},
@@ -139,11 +203,37 @@ def gemini_parse(text):
         with urllib.request.urlopen(req, timeout=20) as response:
             raw = json.loads(response.read().decode())
     except urllib.error.HTTPError as exc:
-        body_text = exc.read().decode(errors="ignore")[:800]
-        logger.warning("Gemini HTTP error %s: %s", exc.code, body_text)
-        raise RuntimeError(f"Gemini HTTP {exc.code}") from exc
+        body_text = exc.read().decode(errors="ignore")[:1200].replace("\n", " ").replace("\r", " ")
+        logger.warning("Gemini model=%s HTTP %s: %s", model, exc.code, body_text)
+        raise RuntimeError(f"Gemini {model} HTTP {exc.code}") from exc
     result_text = raw["candidates"][0]["content"]["parts"][0]["text"]
     return json.loads(result_text)
+
+
+def gemini_parse(text):
+    key = os.getenv("GEMINI_API_KEY")
+    if not key:
+        raise RuntimeError("GEMINI_API_KEY not configured")
+
+    configured = (os.getenv("GEMINI_MODEL") or "").strip()
+    candidates = []
+    for model in (configured, "gemini-2.5-flash-lite", "gemini-2.5-flash"):
+        if model and model not in candidates:
+            candidates.append(model)
+
+    errors = []
+    for model in candidates:
+        try:
+            parsed = _gemini_request(key, model, text)
+            parsed["model"] = model
+            return parsed
+        except RuntimeError as exc:
+            errors.append(str(exc))
+            # A 404 often means a model alias is unavailable to this API project; try another stable free-tier model.
+            if "HTTP 404" in str(exc):
+                continue
+            raise
+    raise RuntimeError("; ".join(errors) or "Gemini request failed")
 
 
 def _parse_changed_at(action: dict):
@@ -223,7 +313,10 @@ def validate_action(db: Session, action: dict):
         return "SAFE", f"{action.get('line')} position {action.get('position')}: {old_code} → {new_code}."
 
     if kind in {"ENTRY_GUIDE_SUMMARY", "ENTRY_GUIDE_CHANGE"}:
-        return "REVIEW", "Entry-guide import is detected, but automatic entry-guide updates are not enabled yet."
+        position = action.get("position")
+        if position not in {2, 4, 6, 8, 10}:
+            return "CONFLICT", "Entry guides are only valid for positions 2, 4, 6, 8 and 10."
+        return "REVIEW", "Entry-guide information was understood. Review it before we enable automatic guide updates."
 
     return "REVIEW", "Unsupported action type."
 
@@ -233,15 +326,17 @@ def analyse_report(payload: ReportInput, user: User = Depends(require_operator))
     text = payload.text.strip()
     provider = "gemini"
     ai_error = None
+    model = None
     try:
         parsed = gemini_parse(text)
+        model = parsed.pop("model", None)
     except Exception as exc:
         ai_error = str(exc)
         logger.warning("Gemini unavailable; fallback parser used: %s", ai_error)
         provider = "template-parser"
         parsed = template_parse(text)
         parsed["warnings"].append(f"AI unavailable ({ai_error}); used free template parser instead.")
-    return {"provider": provider, "analysed_by": user.username, "actions": parsed.get("actions", []), "warnings": parsed.get("warnings", []), "message": "Preview only. No plant data has been changed."}
+    return {"provider": provider, "model": model, "analysed_by": user.username, "actions": parsed.get("actions", []), "warnings": parsed.get("warnings", []), "message": "Preview only. No plant data has been changed."}
 
 
 @router.post("/validate")
