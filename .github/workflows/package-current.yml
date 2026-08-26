@@ -1,0 +1,24 @@
+name: Package Current Project
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove local build files and secrets
+        run: |
+          rm -rf .git frontend/node_modules frontend/.next backend/__pycache__
+          find . -type d -name __pycache__ -prune -exec rm -rf {} + || true
+          find . -type f -name '*.pyc' -delete || true
+          find . -type f \( -name '.env' -o -name '.env.*' \) -delete || true
+      - name: Create zip
+        run: zip -qr digital-stand-register-current.zip . -x 'digital-stand-register-current.zip'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digital-stand-register-current
+          path: digital-stand-register-current.zip
+          retention-days: 1
