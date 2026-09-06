@@ -1,14 +1,14 @@
 """spare life register
 
 Revision ID: 20260906_spare_life
-Revises: 20260823_prep_history
+Revises: 20260823_inp_status
 Create Date: 2026-09-06
 """
 from alembic import op
 import sqlalchemy as sa
 
 revision = "20260906_spare_life"
-down_revision = "20260823_prep_history"
+down_revision = "20260823_inp_status"
 branch_labels = None
 depends_on = None
 
