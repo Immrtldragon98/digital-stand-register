@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Home, Wrench, FileText, Factory, Package, History, Layers, Users, LogIn, LogOut, ClipboardPaste, CalendarRange } from "lucide-react";
+import { Home, Wrench, FileText, Factory, Package, History, Layers, Users, LogIn, LogOut, ClipboardPaste, CalendarRange, Database } from "lucide-react";
 import { AuthUser, clearSession, getUser, isAdmin } from "@/lib/auth";
 
 export default function Sidebar() {
@@ -11,7 +11,7 @@ export default function Sidebar() {
   useEffect(() => { const sync=()=>setUser(getUser()); sync(); window.addEventListener("dsr-auth-change",sync); window.addEventListener("storage",sync); return()=>{window.removeEventListener("dsr-auth-change",sync);window.removeEventListener("storage",sync);};},[]);
   const menuItems=[
     {name:"Home",href:"/dashboard",icon:Home},{name:"Planning",href:"/planning",icon:CalendarRange},{name:"Stand Area",href:"/stand-area",icon:Factory},{name:"Stand Change",href:"/operations",icon:Wrench},{name:"Entry Guides",href:"/entry-guides",icon:Layers},
-    ...(user?[{name:"Import Report",href:"/import-report",icon:ClipboardPaste}]:[]),
+    ...(user?[{name:"Import Report",href:"/import-report",icon:ClipboardPaste},{name:"Historical Data",href:"/historical-import",icon:Database}]:[]),
     {name:"Spare Life",href:"/inventory",icon:Package},{name:"History",href:"/activity",icon:History},{name:"Reports",href:"/reports",icon:FileText},...(isAdmin(user)?[{name:"Users",href:"/users",icon:Users}]:[])
   ];
   const logout=()=>{clearSession();setUser(null);router.push("/dashboard");};
