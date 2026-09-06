@@ -11,16 +11,36 @@ const riskClass=(risk:string)=>risk==="CRITICAL"?"text-red-300 bg-red-950/40 bor
 const lifeText=(h:number|null)=>h==null?"—":`${Math.floor(h/24)}d ${Math.floor(h%24)}h`;
 
 export default function PlanningPage(){
-  const [rows,setRows]=useState<Row[]>([]);const [error,setError]=useState("");const [loading,setLoading]=useState(true);const [saving,setSaving]=useState<number|null>(null);const user=getUser();
-  const load=async()=>{try{setError("");setRows(await fetchApi("/planning/summary"));}catch(e:any){setError(e.message);}finally{setLoading(false)}};
+  const [rows,setRows]=useState<Row[]>([]);const [error,setError]=useState("");const [loading,setLoading]=useState(true);const [saving,setSaving]=useState<number|null>(null);const [line,setLine]=useState("W1");const user=getUser();
+  const load=async()=>{setLoading(true);try{setError("");setRows(await fetchApi("/planning/summary"));}catch(e:any){setError(e.message);}finally{setLoading(false)}};
   useEffect(()=>{load()},[]);
-  const priorities=useMemo(()=>rows.filter(r=>["CRITICAL","HIGH","WATCH"].includes(r.risk)).sort((a,b)=>(b.life_percent||0)-(a.life_percent||0)),[rows]);
+  const lineRows=useMemo(()=>rows.filter(r=>r.line===line).sort((a,b)=>a.position-b.position),[rows,line]);
+  const priorities=useMemo(()=>lineRows.filter(r=>["CRITICAL","HIGH","WATCH"].includes(r.risk)).sort((a,b)=>(b.life_percent||0)-(a.life_percent||0)),[lineRows]);
   async function setTarget(row:Row){const raw=window.prompt(`Target life hours for ${row.line} P${row.position}`,row.target_life_hours?String(row.target_life_hours):"");if(raw===null)return;const value=Number(raw);if(!Number.isFinite(value)||value<=0)return;setSaving(row.position_id);try{await fetchApi(`/planning/positions/${row.position_id}/target`,{method:"PATCH",body:JSON.stringify({target_life_hours:value})});await load();}catch(e:any){setError(e.message);}finally{setSaving(null)}}
+  const metricRows=[
+    {label:"Running stand",render:(r:Row)=><span className="font-bold text-white">{r.stand||"—"}</span>},
+    {label:"Running life",render:(r:Row)=>lifeText(r.running_hours)},
+    {label:"Target life",render:(r:Row)=><>{r.target_life_hours!=null?`${r.target_life_hours} h`:<span className="text-slate-600">Not set</span>}{user&&<button disabled={saving===r.position_id} onClick={()=>setTarget(r)} className="ml-1 text-blue-400 hover:text-blue-300">Edit</button>}</>},
+    {label:"Life %",render:(r:Row)=>r.life_percent!=null?`${r.life_percent}%`:"—"},
+    {label:"Historical avg",render:(r:Row)=>r.historical_avg_days!=null?`${r.historical_avg_days} d`:"—"},
+    {label:"Ready",render:(r:Row)=><span className="font-bold">{r.ready_count}</span>},
+    {label:"Risk",render:(r:Row)=><span className={`rounded border px-2 py-1 text-[10px] ${riskClass(r.risk)}`}>{r.risk.replace("_"," ")}</span>},
+  ];
   return <div className="flex-1 min-h-screen bg-industrial-dark text-slate-100"><Header title="Planning"/><main className="p-4 md:p-5 space-y-4">
-    <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4"><div className="flex items-start justify-between gap-4"><div><h1 className="text-xl font-black text-white">Stand Life Planning</h1><p className="text-xs text-slate-400 mt-1">Live running life + engineer-set target + historical baseline + ready coverage.</p></div><button onClick={load} className="rounded border border-blue-800 px-3 py-2 text-xs text-blue-300">Refresh</button></div></section>
+    <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div><h1 className="text-xl font-black text-white">Stand Life Planning</h1><p className="text-xs text-slate-400 mt-1">Simple view of running life, target, ready coverage and risk.</p></div>
+        <div className="flex items-center gap-2"><div className="flex rounded-lg border border-slate-700 bg-slate-950 p-1">{["W1","W2","W3"].map(x=><button key={x} onClick={()=>setLine(x)} className={`rounded px-4 py-2 text-xs font-bold ${line===x?"bg-blue-600 text-white":"text-slate-400 hover:text-white"}`}>{x}</button>)}</div><button onClick={load} className="rounded border border-blue-800 px-3 py-2 text-xs text-blue-300">Refresh</button></div>
+      </div>
+    </section>
     {error&&<div className="rounded border border-red-900 bg-red-950/30 p-3 text-sm text-red-300">{error}</div>}
-    {priorities.length>0&&<section className="rounded-xl border border-amber-900/70 bg-amber-950/10 p-4"><h2 className="font-bold text-amber-200">Priority attention</h2><div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{priorities.slice(0,6).map(r=><div key={`${r.line}-${r.position}`} className="rounded-lg border border-slate-800 bg-slate-950/40 p-3 text-xs"><div className="flex justify-between"><b>{r.line} · P{r.position} · {r.stand||"—"}</b><span className={`rounded border px-2 py-0.5 ${riskClass(r.risk)}`}>{r.risk}</span></div><div className="mt-2 text-slate-400">Life {r.life_percent??"—"}% · Ready {r.ready_count} · Run {lifeText(r.running_hours)}</div></div>)}</div></section>}
-    <section className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/30"><table className="w-full min-w-[1050px] text-xs"><thead className="bg-slate-900 text-slate-400"><tr><th className="p-2 text-left">Line</th><th>P</th><th className="text-left">Running stand</th><th>Installed</th><th>Running life</th><th>Target h</th><th>Life %</th><th>Historical avg</th><th>History n</th><th>Ready</th><th>Risk</th></tr></thead><tbody>{loading?<tr><td colSpan={11} className="p-5 text-center text-slate-500">Loading...</td></tr>:rows.map(r=><tr key={`${r.line}-${r.position}`} className="border-t border-slate-800"><td className="p-2 font-bold text-blue-300">{r.line}</td><td className="text-center">{r.position}</td><td className="p-2 font-semibold text-white">{r.stand||"—"}</td><td className="text-center">{r.installed_at?new Date(r.installed_at).toLocaleDateString():"—"}</td><td className="text-center">{lifeText(r.running_hours)}</td><td className="text-center">{r.target_life_hours??<span className="text-slate-600">not set</span>}{user&&<button disabled={saving===r.position_id} onClick={()=>setTarget(r)} className="ml-2 text-blue-400 hover:text-blue-300">edit</button>}</td><td className="text-center font-bold">{r.life_percent!=null?`${r.life_percent}%`:"—"}</td><td className="text-center">{r.historical_avg_days!=null?`${r.historical_avg_days} d`:"—"}</td><td className="text-center">{r.historical_campaigns}</td><td className="text-center font-bold">{r.ready_count}</td><td className="p-2 text-center"><span className={`rounded border px-2 py-1 ${riskClass(r.risk)}`}>{r.risk.replace("_"," ")}</span></td></tr>)}</tbody></table></section>
-    <p className="text-[11px] text-slate-500">Historical life is an inferred baseline reconstructed from daily stand-status sheets. It is kept separate from engineer-set target life and is not treated as an exact operating-hour measurement.</p>
+    {priorities.length>0&&<section className="rounded-xl border border-amber-900/70 bg-amber-950/10 p-3"><div className="flex flex-wrap items-center gap-2"><span className="text-xs font-bold text-amber-200">Attention:</span>{priorities.slice(0,5).map(r=><span key={`${r.line}-${r.position}`} className="rounded border border-slate-700 bg-slate-950/40 px-2 py-1 text-xs">P{r.position} · {r.stand||"—"} · <span className={r.risk==="CRITICAL"?"text-red-300":"text-amber-300"}>{r.risk}</span></span>)}</div></section>}
+    <section className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/30">
+      <table className="w-full min-w-[1050px] text-xs">
+        <thead className="bg-slate-900 text-slate-400"><tr><th className="sticky left-0 z-10 bg-slate-900 p-3 text-left min-w-[130px]">{line}</th>{Array.from({length:10},(_,i)=><th key={i+1} className="p-3 text-center min-w-[88px]">P{i+1}</th>)}</tr></thead>
+        <tbody>{loading?<tr><td colSpan={11} className="p-5 text-center text-slate-500">Loading...</td></tr>:metricRows.map((m,idx)=><tr key={m.label} className="border-t border-slate-800"><td className="sticky left-0 z-10 bg-slate-950 p-3 font-semibold text-slate-400">{m.label}</td>{Array.from({length:10},(_,i)=>{const r=lineRows.find(x=>x.position===i+1);return <td key={i+1} className={`p-3 text-center ${idx===0?"bg-slate-900/20":""}`}>{r?m.render(r):"—"}</td>})}</tr>)}</tbody>
+      </table>
+    </section>
+    <p className="text-[11px] text-slate-500">Historical average is supporting context only. Engineer-set target remains the planning reference.</p>
   </main></div>
 }
