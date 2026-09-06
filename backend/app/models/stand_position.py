@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, Column, ForeignKey, Integer, UniqueConstraint
+from sqlalchemy import CheckConstraint, Column, Float, ForeignKey, Integer, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.database.session import Base
 
@@ -13,5 +13,6 @@ class Position(Base):
     id = Column(Integer, primary_key=True, index=True)
     line_id = Column(Integer, ForeignKey("lines.id"), nullable=False)
     position_number = Column(Integer, nullable=False)
+    target_life_hours = Column(Float, nullable=True)
 
     line = relationship("Line", back_populates="positions")
