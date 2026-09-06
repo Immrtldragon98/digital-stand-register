@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 from app.config.settings import settings
 import app.models  # noqa: F401 - registers SQLAlchemy models
@@ -12,6 +13,7 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+app.add_middleware(GZipMiddleware, minimum_size=700)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
