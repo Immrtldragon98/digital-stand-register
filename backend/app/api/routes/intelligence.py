@@ -1,4 +1,3 @@
-import re
 from collections import Counter, defaultdict
 from statistics import mean, median
 
@@ -11,6 +10,7 @@ from app.models.reliability_history import HistoricalCampaign, HistoricalSpareUs
 router = APIRouter()
 
 CAUSE_RULES = [
+    ("ROUTINE_CHANGE", ["routine change", "routine"]),
     ("FLATNESS", ["flatness", "flat"]),
     ("INTERNAL_LEAKAGE", ["internal leakage"]),
     ("LEAKAGE", ["leakage", "leak"]),
@@ -23,7 +23,7 @@ CAUSE_RULES = [
     ("PLAY", ["play"]),
     ("VIBRATION", ["vibration"]),
     ("BEARING", ["bearing"]),
-    ("ROLL_CHANGE", ["roll change", "roll"]),
+    ("ROLL_CHANGE", ["roll change"]),
 ]
 
 
@@ -53,7 +53,8 @@ def intelligence_summary(db: Session = Depends(get_db)):
     spares = db.query(HistoricalSpareUsage).all()
     process = db.query(ProcessObservation).all()
 
-    valid = [c for c in campaigns if c.life_days is not None and c.life_days >= 0]
+    # Zero-day entries are snapshot/changeover ambiguity, not a measurable campaign life.
+    valid = [c for c in campaigns if c.life_days is not None and c.life_days > 0]
     line_stats = []
     position_stats = []
     for line in ("W1", "W2", "W3"):
@@ -68,7 +69,6 @@ def intelligence_summary(db: Session = Depends(get_db)):
                     "min_days": round(min(pv), 2), "max_days": round(max(pv), 2),
                 })
 
-    # Weak positions are relative to the same position across all lines, not an arbitrary plant target.
     pos_baseline = {}
     for pos in range(1, 11):
         vals = [c.life_days for c in valid if c.position_number == pos]
@@ -84,7 +84,6 @@ def intelligence_summary(db: Session = Depends(get_db)):
     cause_counts = Counter(_cause(c.removal_reason) for c in valid if c.removal_reason)
     cause_pareto = [{"cause": k, "count": v} for k, v in cause_counts.most_common(12)]
 
-    # Stand-code repeat low-life view. Require at least 3 completed historical campaigns.
     by_stand = defaultdict(list)
     for c in valid:
         by_stand[c.stand_code].append(c.life_days)
@@ -103,8 +102,6 @@ def intelligence_summary(db: Session = Depends(get_db)):
         key=lambda x: x["quantity"], reverse=True
     )[:12]
 
-    # Process comparison: compare observations on dates overlapping short campaigns with overall line average.
-    # This is only a screening correlation, never a root-cause claim.
     process_by_line = defaultdict(list)
     for p in process:
         process_by_line[p.line_name].append(p)
@@ -117,10 +114,10 @@ def intelligence_summary(db: Session = Depends(get_db)):
         early_dates = set()
         for c in lc:
             if c.life_days <= med * 0.6 and c.installed_date and c.removed_date:
+                from datetime import timedelta
                 d = c.installed_date
                 while d <= c.removed_date:
                     early_dates.add(d)
-                    from datetime import timedelta
                     d += timedelta(days=1)
         all_obs = process_by_line[line]
         early_obs = [o for o in all_obs if o.observation_date in early_dates]
@@ -144,5 +141,5 @@ def intelligence_summary(db: Session = Depends(get_db)):
         "repeat_low_life": repeat_low_life[:12],
         "top_spares": top_spares,
         "process_screen": process_screen,
-        "method_note": "Historical campaigns reconstructed from daily snapshots are inferred. Process comparisons are correlations for engineering screening, not confirmed causes."
+        "method_note": "Historical campaigns reconstructed from daily snapshots are inferred. Zero-day changeover ambiguity is excluded from life baselines. Process comparisons are correlations for engineering screening, not confirmed causes."
     }
