@@ -1,0 +1,24 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Header from "@/components/layout/Header";
+import { fetchApi } from "@/lib/api";
+
+type Preview={kind:string;filename:string;records:number;with_reasons?:number;spares?:number;lines?:string[];mapping?:Record<string,string>};
+
+export default function HistoricalImportPage(){
+  const [file,setFile]=useState<File|null>(null);const [preview,setPreview]=useState<Preview|null>(null);const [summary,setSummary]=useState<any>(null);const [loading,setLoading]=useState(false);const [message,setMessage]=useState("");const [error,setError]=useState("");
+  const loadSummary=async()=>{try{setSummary(await fetchApi("/historical/summary"));}catch{/* migration may still be deploying */}};
+  useEffect(()=>{loadSummary()},[]);
+  async function runPreview(){if(!file)return;setLoading(true);setError("");setMessage("");try{const fd=new FormData();fd.append("file",file);setPreview(await fetchApi("/historical/preview",{method:"POST",body:fd}));}catch(e:any){setError(e.message);}finally{setLoading(false)}}
+  async function doImport(){if(!file||!preview)return;if(!window.confirm(`Import ${preview.records} ${preview.kind.toLowerCase().replaceAll("_"," ")} records?`))return;setLoading(true);setError("");try{const fd=new FormData();fd.append("file",file);const r=await fetchApi("/historical/import",{method:"POST",body:fd});setMessage(`Imported ${r.inserted}; skipped ${r.skipped} existing records.`);await loadSummary();}catch(e:any){setError(e.message);}finally{setLoading(false)}}
+  return <div className="flex-1 min-h-screen bg-industrial-dark text-slate-100"><Header title="Historical Data"/><main className="p-4 md:p-5 max-w-6xl space-y-4">
+    <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4"><h1 className="text-xl font-black">Reliability History Import</h1><p className="mt-1 text-xs text-slate-400">Backfill campaigns, spare usage and process conditions without mixing inferred history with live DSR records.</p></section>
+    {summary&&<section className="grid grid-cols-1 md:grid-cols-3 gap-3"><div className="rounded-lg border border-slate-800 p-3"><div className="text-2xl font-black text-blue-300">{summary.campaigns}</div><div className="text-xs text-slate-500">Historical campaigns</div></div><div className="rounded-lg border border-slate-800 p-3"><div className="text-2xl font-black text-emerald-300">{summary.spare_usage_rows}</div><div className="text-xs text-slate-500">Spare usage rows</div></div><div className="rounded-lg border border-slate-800 p-3"><div className="text-2xl font-black text-purple-300">{summary.process_observations}</div><div className="text-xs text-slate-500">Process observations</div></div></section>}
+    <section className="rounded-xl border border-slate-800 bg-slate-950/30 p-4 space-y-3"><div><h2 className="font-bold">Upload Excel history</h2><p className="text-xs text-slate-500 mt-1">Recognizes Stand Tracking, Spare Utilized and WRM Parameter Report workbooks. Parameter mapping: WRM3 → W1, WRM4 → W2, WRM5 → W3.</p></div><input type="file" accept=".xlsx" onChange={e=>{setFile(e.target.files?.[0]||null);setPreview(null);setMessage("");}} className="text-xs text-slate-300 file:mr-3 file:rounded file:border-0 file:bg-slate-700 file:px-3 file:py-2 file:text-slate-100"/><div className="flex gap-2"><button disabled={!file||loading} onClick={runPreview} className="rounded bg-blue-600 px-4 py-2 text-sm font-semibold disabled:opacity-40">Preview</button><button disabled={!preview||loading} onClick={doImport} className="rounded bg-emerald-600 px-4 py-2 text-sm font-semibold disabled:opacity-40">Import reviewed data</button></div>
+      {preview&&<div className="rounded-lg border border-slate-700 bg-slate-900/60 p-3 text-sm"><div className="font-bold text-white">{preview.filename}</div><div className="mt-1 text-slate-300">Detected: {preview.kind.replaceAll("_"," ")}</div><div className="text-slate-300">Records: {preview.records}</div>{preview.with_reasons!=null&&<div className="text-slate-300">Campaign changes with remarks: {preview.with_reasons}</div>}{preview.spares!=null&&<div className="text-slate-300">Unique spares: {preview.spares}</div>}{preview.mapping&&<div className="mt-2 text-xs text-blue-300">WRM3 → W1 · WRM4 → W2 · WRM5 → W3</div>}</div>}
+      {message&&<div className="text-sm text-emerald-300">✓ {message}</div>}{error&&<div className="text-sm text-red-300">{error}</div>}
+    </section>
+    <section className="rounded-xl border border-amber-900/60 bg-amber-950/10 p-4 text-xs text-slate-400"><b className="text-amber-200">Data rule:</b> Daily stand sheets are reconstructed as inferred campaigns and never presented as exact operating-hour history. New live stand changes remain the higher-quality source of truth.</section>
+  </main></div>
+}
