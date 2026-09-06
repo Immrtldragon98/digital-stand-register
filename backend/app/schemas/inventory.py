@@ -6,8 +6,14 @@ class InventoryBase(BaseModel):
     name: str = Field(min_length=1, max_length=150)
     quantity: int = Field(default=0, ge=0)
     minimum_quantity: int = Field(default=0, ge=0)
-    location: str = Field(min_length=1, max_length=150)
+    location: str = Field(default="Store", min_length=1, max_length=150)
     remarks: str | None = None
+    expected_life_hours: float | None = Field(default=None, ge=0)
+    observed_avg_life_hours: float | None = Field(default=None, ge=0)
+    reliability_pct: float | None = Field(default=None, ge=0, le=100)
+    availability_pct: float | None = Field(default=None, ge=0, le=100)
+    criticality: str = Field(default="MEDIUM", min_length=1, max_length=20)
+    used_at: str | None = Field(default=None, max_length=150)
 
 
 class InventoryCreate(InventoryBase):
@@ -19,6 +25,12 @@ class InventoryUpdate(BaseModel):
     minimum_quantity: int | None = Field(default=None, ge=0)
     location: str | None = Field(default=None, min_length=1, max_length=150)
     remarks: str | None = None
+    expected_life_hours: float | None = Field(default=None, ge=0)
+    observed_avg_life_hours: float | None = Field(default=None, ge=0)
+    reliability_pct: float | None = Field(default=None, ge=0, le=100)
+    availability_pct: float | None = Field(default=None, ge=0, le=100)
+    criticality: str | None = Field(default=None, min_length=1, max_length=20)
+    used_at: str | None = Field(default=None, max_length=150)
 
 
 class InventoryQuantityChange(BaseModel):
