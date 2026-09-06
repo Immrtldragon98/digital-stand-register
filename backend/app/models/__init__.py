@@ -7,9 +7,7 @@ from app.models.stand_change_event import StandChangeEvent
 from app.models.stand_installation import StandInstallation
 from app.models.stand_position import Position
 from app.models.user import User
-
 from app.models.inventory_item import InventoryItem
-
 from app.models.inventory_transaction import InventoryTransaction
-
 from app.models.stand_preparation_event import StandPreparationEvent
+from app.models.knowledge_document import KnowledgeDocument, KnowledgeChunk
