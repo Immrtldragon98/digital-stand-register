@@ -3,8 +3,9 @@ import re
 from datetime import date, datetime
 from statistics import mean
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from openpyxl import load_workbook
+from sqlalchemy import tuple_
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import require_operator
@@ -19,6 +20,7 @@ PARAMETER_SHEET_MAP = {
     "WRM 4 PARAMETER": (4, "W2"),
     "WRM 5 PARAMETER": (5, "W3"),
 }
+VALID_KINDS = {"STAND_TRACKING", "SPARE_USAGE", "PROCESS_PARAMETERS"}
 
 
 def _as_date(value):
@@ -92,24 +94,31 @@ def _parse_stand_tracking(wb, filename):
                     "source_file": filename,
                 })
                 active[position] = (stand, row_date)
-        # Keep open campaigns out of the reliability average; live DSR now tracks those exactly.
     return campaigns
 
 
 def _parse_spare_usage(wb, filename):
-    ws = wb[wb.sheetnames[0]]
-    headers = [str(c.value).strip() if c.value is not None else "" for c in ws[1]]
     usages = []
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        row_date = _as_date(row[0] if row else None)
-        if not row_date:
+    for ws in wb.worksheets:
+        # Each sheet is a different time period; row 1 contains spare names and row 3+ contains dates.
+        headers = [str(c.value).strip() if c.value is not None else "" for c in ws[1]]
+        if not any(h.lower() == "oil seal" for h in headers):
             continue
-        for idx in range(1, min(len(row), len(headers))):
-            spare = headers[idx].strip()
-            qty = _num(row[idx])
-            if not spare or qty is None or qty == 0:
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            row_date = _as_date(row[0] if row else None)
+            if not row_date:
                 continue
-            usages.append({"usage_date": row_date, "spare_name": spare[:150], "quantity": qty, "source_file": filename})
+            for idx in range(1, min(len(row), len(headers))):
+                spare = headers[idx].strip()
+                qty = _num(row[idx])
+                if not spare or qty is None or qty == 0:
+                    continue
+                usages.append({
+                    "usage_date": row_date,
+                    "spare_name": spare[:150],
+                    "quantity": qty,
+                    "source_file": filename,
+                })
     return usages
 
 
@@ -120,6 +129,9 @@ def _parse_parameter_report(wb, filename):
             continue
         ws = wb[sheet_name]
         header = [str(v).strip() if v is not None else "" for v in next(ws.iter_rows(min_row=1, max_row=1, values_only=True))]
+        normalized = {h.strip().upper(): i for i, h in enumerate(header) if h}
+        emulsion_idx = normalized.get("EMULSION TEMP", 15)
+        casting_idx = normalized.get("CASTING SPEED", 5)
         for raw in ws.iter_rows(min_row=2, values_only=True):
             obs_date = _as_date(raw[0] if raw else None)
             if not obs_date:
@@ -138,8 +150,8 @@ def _parse_parameter_report(wb, filename):
                 "line_name": line_name,
                 "coil_no": str(raw[3]).strip()[:80] if len(raw) > 3 and raw[3] is not None else None,
                 "uts_band": str(raw[4]).strip()[:30] if len(raw) > 4 and raw[4] is not None else None,
-                "casting_speed": _num(raw[5] if len(raw) > 5 else None),
-                "emulsion_temp": _num(raw[15] if len(raw) > 15 else None),
+                "casting_speed": _num(raw[casting_idx] if casting_idx < len(raw) else None),
+                "emulsion_temp": _num(raw[emulsion_idx] if emulsion_idx < len(raw) else None),
                 "parameters": params,
                 "source_file": filename,
             })
@@ -152,77 +164,151 @@ def _detect(wb):
         return "STAND_TRACKING"
     if any(name in names for name in PARAMETER_SHEET_MAP):
         return "PROCESS_PARAMETERS"
-    first = wb[wb.sheetnames[0]]
-    first_row = [str(c.value or "").strip().lower() for c in first[1]]
-    if "oil seal" in first_row or "special bearing" in first_row:
-        return "SPARE_USAGE"
+    for ws in wb.worksheets:
+        first_row = [str(c.value or "").strip().lower() for c in ws[1]]
+        if "oil seal" in first_row or "special bearing" in first_row:
+            return "SPARE_USAGE"
     return "UNKNOWN"
 
 
-@router.post("/preview")
-async def preview_historical(file: UploadFile = File(...), _: User = Depends(require_operator)):
-    if not file.filename or not file.filename.lower().endswith(".xlsx"):
-        raise HTTPException(400, "Upload an .xlsx workbook")
-    payload = await file.read()
+def _validate_expected(kind, expected_kind):
+    if expected_kind:
+        expected_kind = expected_kind.upper().strip()
+        if expected_kind not in VALID_KINDS:
+            raise HTTPException(400, "Unknown historical dataset type")
+        if kind != expected_kind:
+            labels = {
+                "STAND_TRACKING": "Stand Tracking",
+                "SPARE_USAGE": "Spare Utilized",
+                "PROCESS_PARAMETERS": "WRM Parameter Report",
+            }
+            raise HTTPException(400, f"Wrong workbook for this importer. Expected {labels[expected_kind]}, detected {labels.get(kind, kind)}.")
+
+
+def _load_workbook(payload):
     try:
-        wb = load_workbook(io.BytesIO(payload), data_only=True, read_only=True)
+        return load_workbook(io.BytesIO(payload), data_only=True, read_only=True)
     except Exception as exc:
         raise HTTPException(400, f"Could not read workbook: {exc}")
+
+
+@router.post("/preview")
+async def preview_historical(
+    file: UploadFile = File(...),
+    expected_kind: str | None = Form(default=None),
+    _: User = Depends(require_operator),
+):
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(400, "Upload an .xlsx workbook")
+    wb = _load_workbook(await file.read())
     kind = _detect(wb)
+    _validate_expected(kind, expected_kind)
     if kind == "STAND_TRACKING":
         rows = _parse_stand_tracking(wb, file.filename)
-        reasons = sum(1 for r in rows if r["removal_reason"])
-        return {"kind": kind, "filename": file.filename, "records": len(rows), "with_reasons": reasons, "lines": sorted(set(r["line_name"] for r in rows))}
+        return {
+            "kind": kind,
+            "filename": file.filename,
+            "records": len(rows),
+            "with_reasons": sum(1 for r in rows if r["removal_reason"]),
+            "lines": sorted(set(r["line_name"] for r in rows)),
+            "note": "Daily snapshots reconstructed as inferred campaigns",
+        }
     if kind == "SPARE_USAGE":
         rows = _parse_spare_usage(wb, file.filename)
-        return {"kind": kind, "filename": file.filename, "records": len(rows), "spares": len(set(r["spare_name"] for r in rows))}
+        return {
+            "kind": kind,
+            "filename": file.filename,
+            "records": len(rows),
+            "spares": len(set(r["spare_name"] for r in rows)),
+            "date_from": min((r["usage_date"] for r in rows), default=None),
+            "date_to": max((r["usage_date"] for r in rows), default=None),
+        }
     if kind == "PROCESS_PARAMETERS":
         rows = _parse_parameter_report(wb, file.filename)
-        return {"kind": kind, "filename": file.filename, "records": len(rows), "mapping": {"WRM3": "W1", "WRM4": "W2", "WRM5": "W3"}}
+        return {
+            "kind": kind,
+            "filename": file.filename,
+            "records": len(rows),
+            "mapping": {"WRM3": "W1", "WRM4": "W2", "WRM5": "W3"},
+            "date_from": min((r["observation_date"] for r in rows), default=None),
+            "date_to": max((r["observation_date"] for r in rows), default=None),
+        }
     raise HTTPException(400, "Workbook format not recognized")
 
 
 @router.post("/import")
-async def import_historical(file: UploadFile = File(...), db: Session = Depends(get_db), _: User = Depends(require_operator)):
+async def import_historical(
+    file: UploadFile = File(...),
+    expected_kind: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_operator),
+):
     if not file.filename or not file.filename.lower().endswith(".xlsx"):
         raise HTTPException(400, "Upload an .xlsx workbook")
-    payload = await file.read()
-    try:
-        wb = load_workbook(io.BytesIO(payload), data_only=True, read_only=True)
-    except Exception as exc:
-        raise HTTPException(400, f"Could not read workbook: {exc}")
+    wb = _load_workbook(await file.read())
     kind = _detect(wb)
+    _validate_expected(kind, expected_kind)
     inserted = 0
     skipped = 0
+
+    # Prefetch existing keys once. This avoids thousands of Neon round trips and Render request timeouts.
     if kind == "STAND_TRACKING":
-        for row in _parse_stand_tracking(wb, file.filename):
-            exists = db.query(HistoricalCampaign.id).filter_by(
-                source_file=row["source_file"], line_name=row["line_name"], position_number=row["position_number"],
-                stand_code=row["stand_code"], installed_date=row["installed_date"]
-            ).first()
-            if exists:
+        rows = _parse_stand_tracking(wb, file.filename)
+        existing = set(db.query(
+            HistoricalCampaign.line_name,
+            HistoricalCampaign.position_number,
+            HistoricalCampaign.stand_code,
+            HistoricalCampaign.installed_date,
+        ).filter(HistoricalCampaign.source_file == file.filename).all())
+        new_rows = []
+        for row in rows:
+            key = (row["line_name"], row["position_number"], row["stand_code"], row["installed_date"])
+            if key in existing:
                 skipped += 1
-                continue
-            db.add(HistoricalCampaign(**row)); inserted += 1
+            else:
+                existing.add(key)
+                new_rows.append(HistoricalCampaign(**row))
+        db.add_all(new_rows)
+        inserted = len(new_rows)
+
     elif kind == "SPARE_USAGE":
-        for row in _parse_spare_usage(wb, file.filename):
-            exists = db.query(HistoricalSpareUsage.id).filter_by(source_file=row["source_file"], usage_date=row["usage_date"], spare_name=row["spare_name"]).first()
-            if exists:
+        rows = _parse_spare_usage(wb, file.filename)
+        existing = set(db.query(
+            HistoricalSpareUsage.usage_date,
+            HistoricalSpareUsage.spare_name,
+        ).filter(HistoricalSpareUsage.source_file == file.filename).all())
+        new_rows = []
+        for row in rows:
+            key = (row["usage_date"], row["spare_name"])
+            if key in existing:
                 skipped += 1
-                continue
-            db.add(HistoricalSpareUsage(**row)); inserted += 1
+            else:
+                existing.add(key)
+                new_rows.append(HistoricalSpareUsage(**row))
+        db.add_all(new_rows)
+        inserted = len(new_rows)
+
     elif kind == "PROCESS_PARAMETERS":
-        for row in _parse_parameter_report(wb, file.filename):
-            exists = db.query(ProcessObservation.id).filter_by(
-                source_file=row["source_file"], line_name=row["line_name"], observation_date=row["observation_date"],
-                shift=row["shift"], coil_no=row["coil_no"]
-            ).first()
-            if exists:
+        rows = _parse_parameter_report(wb, file.filename)
+        existing = set(db.query(
+            ProcessObservation.line_name,
+            ProcessObservation.observation_date,
+            ProcessObservation.shift,
+            ProcessObservation.coil_no,
+        ).filter(ProcessObservation.source_file == file.filename).all())
+        new_rows = []
+        for row in rows:
+            key = (row["line_name"], row["observation_date"], row["shift"], row["coil_no"])
+            if key in existing:
                 skipped += 1
-                continue
-            db.add(ProcessObservation(**row)); inserted += 1
+            else:
+                existing.add(key)
+                new_rows.append(ProcessObservation(**row))
+        db.add_all(new_rows)
+        inserted = len(new_rows)
     else:
         raise HTTPException(400, "Workbook format not recognized")
+
     db.commit()
     return {"kind": kind, "inserted": inserted, "skipped": skipped, "filename": file.filename}
 
@@ -233,12 +319,15 @@ def historical_summary(db: Session = Depends(get_db)):
     by_position = []
     for line_name in ("W1", "W2", "W3"):
         for position in range(1, 11):
-            values = [c.life_days for c in campaigns if c.line_name == line_name and c.position_number == position and c.life_days is not None and c.life_days >= 0]
+            values = [c.life_days for c in campaigns if c.line_name == line_name and c.position_number == position and c.life_days is not None and c.life_days > 0]
             if values:
                 by_position.append({"line": line_name, "position": position, "campaigns": len(values), "avg_days": round(mean(values), 2)})
     return {
         "campaigns": len(campaigns),
+        "campaign_files": db.query(HistoricalCampaign.source_file).distinct().count(),
         "spare_usage_rows": db.query(HistoricalSpareUsage).count(),
+        "spare_files": db.query(HistoricalSpareUsage.source_file).distinct().count(),
         "process_observations": db.query(ProcessObservation).count(),
+        "process_files": db.query(ProcessObservation.source_file).distinct().count(),
         "by_position": by_position,
     }
