@@ -1,0 +1,26 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Header from "@/components/layout/Header";
+import { fetchApi } from "@/lib/api";
+import { getUser } from "@/lib/auth";
+
+type Row={line:string;position_id:number;position:number;stand:string|null;installed_at:string|null;running_hours:number|null;target_life_hours:number|null;life_percent:number|null;historical_avg_days:number|null;historical_campaigns:number;ready_count:number;risk:string};
+
+const riskClass=(risk:string)=>risk==="CRITICAL"?"text-red-300 bg-red-950/40 border-red-800":risk==="HIGH"?"text-orange-300 bg-orange-950/30 border-orange-800":risk==="WATCH"?"text-amber-300 bg-amber-950/30 border-amber-800":risk==="LOW"?"text-emerald-300 bg-emerald-950/30 border-emerald-800":"text-slate-400 bg-slate-900 border-slate-700";
+const lifeText=(h:number|null)=>h==null?"—":`${Math.floor(h/24)}d ${Math.floor(h%24)}h`;
+
+export default function PlanningPage(){
+  const [rows,setRows]=useState<Row[]>([]);const [error,setError]=useState("");const [loading,setLoading]=useState(true);const [saving,setSaving]=useState<number|null>(null);const user=getUser();
+  const load=async()=>{try{setError("");setRows(await fetchApi("/planning/summary"));}catch(e:any){setError(e.message);}finally{setLoading(false)}};
+  useEffect(()=>{load()},[]);
+  const priorities=useMemo(()=>rows.filter(r=>["CRITICAL","HIGH","WATCH"].includes(r.risk)).sort((a,b)=>(b.life_percent||0)-(a.life_percent||0)),[rows]);
+  async function setTarget(row:Row){const raw=window.prompt(`Target life hours for ${row.line} P${row.position}`,row.target_life_hours?String(row.target_life_hours):"");if(raw===null)return;const value=Number(raw);if(!Number.isFinite(value)||value<=0)return;setSaving(row.position_id);try{await fetchApi(`/planning/positions/${row.position_id}/target`,{method:"PATCH",body:JSON.stringify({target_life_hours:value})});await load();}catch(e:any){setError(e.message);}finally{setSaving(null)}}
+  return <div className="flex-1 min-h-screen bg-industrial-dark text-slate-100"><Header title="Planning"/><main className="p-4 md:p-5 space-y-4">
+    <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-4"><div className="flex items-start justify-between gap-4"><div><h1 className="text-xl font-black text-white">Stand Life Planning</h1><p className="text-xs text-slate-400 mt-1">Live running life + engineer-set target + historical baseline + ready coverage.</p></div><button onClick={load} className="rounded border border-blue-800 px-3 py-2 text-xs text-blue-300">Refresh</button></div></section>
+    {error&&<div className="rounded border border-red-900 bg-red-950/30 p-3 text-sm text-red-300">{error}</div>}
+    {priorities.length>0&&<section className="rounded-xl border border-amber-900/70 bg-amber-950/10 p-4"><h2 className="font-bold text-amber-200">Priority attention</h2><div className="mt-2 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{priorities.slice(0,6).map(r=><div key={`${r.line}-${r.position}`} className="rounded-lg border border-slate-800 bg-slate-950/40 p-3 text-xs"><div className="flex justify-between"><b>{r.line} · P{r.position} · {r.stand||"—"}</b><span className={`rounded border px-2 py-0.5 ${riskClass(r.risk)}`}>{r.risk}</span></div><div className="mt-2 text-slate-400">Life {r.life_percent??"—"}% · Ready {r.ready_count} · Run {lifeText(r.running_hours)}</div></div>)}</div></section>}
+    <section className="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950/30"><table className="w-full min-w-[1050px] text-xs"><thead className="bg-slate-900 text-slate-400"><tr><th className="p-2 text-left">Line</th><th>P</th><th className="text-left">Running stand</th><th>Installed</th><th>Running life</th><th>Target h</th><th>Life %</th><th>Historical avg</th><th>History n</th><th>Ready</th><th>Risk</th></tr></thead><tbody>{loading?<tr><td colSpan={11} className="p-5 text-center text-slate-500">Loading...</td></tr>:rows.map(r=><tr key={`${r.line}-${r.position}`} className="border-t border-slate-800"><td className="p-2 font-bold text-blue-300">{r.line}</td><td className="text-center">{r.position}</td><td className="p-2 font-semibold text-white">{r.stand||"—"}</td><td className="text-center">{r.installed_at?new Date(r.installed_at).toLocaleDateString():"—"}</td><td className="text-center">{lifeText(r.running_hours)}</td><td className="text-center">{r.target_life_hours??<span className="text-slate-600">not set</span>}{user&&<button disabled={saving===r.position_id} onClick={()=>setTarget(r)} className="ml-2 text-blue-400 hover:text-blue-300">edit</button>}</td><td className="text-center font-bold">{r.life_percent!=null?`${r.life_percent}%`:"—"}</td><td className="text-center">{r.historical_avg_days!=null?`${r.historical_avg_days} d`:"—"}</td><td className="text-center">{r.historical_campaigns}</td><td className="text-center font-bold">{r.ready_count}</td><td className="p-2 text-center"><span className={`rounded border px-2 py-1 ${riskClass(r.risk)}`}>{r.risk.replace("_"," ")}</span></td></tr>)}</tbody></table></section>
+    <p className="text-[11px] text-slate-500">Historical life is an inferred baseline reconstructed from daily stand-status sheets. It is kept separate from engineer-set target life and is not treated as an exact operating-hour measurement.</p>
+  </main></div>
+}
