@@ -8,6 +8,7 @@ from app.models.activity_log import ActivityLog
 from app.models.enums import LocationEnum, StatusEnum
 from app.models.stand_asset import StandAsset
 from app.models.stand_change_event import StandChangeEvent
+from app.models.stand_component import StandComponentPreparation
 from app.models.stand_installation import StandInstallation
 from app.models.stand_preparation_event import StandPreparationEvent
 from app.models.stand_position import Position
@@ -172,6 +173,17 @@ class OperationService:
         if not operator:
             raise HTTPException(status_code=400, detail="Name is required.")
         now = datetime.utcnow()
+
+        if current == StatusEnum.PENDING and status == StatusEnum.GAUGING:
+            component_prep = self.db.query(StandComponentPreparation).filter(
+                StandComponentPreparation.stand_id == stand.id,
+                StandComponentPreparation.finalized_at.is_(None),
+            ).order_by(StandComponentPreparation.created_at.desc()).first()
+            if component_prep:
+                component_prep.finalized_at = now
+                if component_prep.state == "SAVED":
+                    component_prep.state = "FINALIZED"
+
         stand.current_status = status
         stand.current_location = LocationEnum.READY_AREA if status == StatusEnum.READY else LocationEnum.WIP
         self.db.add(StandPreparationEvent(stand_id=stand.id, from_status=current, to_status=status, updated_by=operator, remarks=(remarks or "").strip() or None, changed_at=now))
