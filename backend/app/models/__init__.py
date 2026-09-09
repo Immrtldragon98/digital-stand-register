@@ -12,3 +12,4 @@ from app.models.inventory_transaction import InventoryTransaction
 from app.models.stand_preparation_event import StandPreparationEvent
 from app.models.knowledge_document import KnowledgeDocument, KnowledgeChunk
 from app.models.reliability_history import HistoricalCampaign, HistoricalSpareUsage, ProcessObservation
+from app.models.stand_component import StandComponentType, StandComponentPreparation, StandComponentPreparationItem
