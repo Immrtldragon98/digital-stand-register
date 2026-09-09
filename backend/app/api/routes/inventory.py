@@ -26,6 +26,41 @@ def _get_item(db: Session, item_id: int) -> InventoryItem:
     return item
 
 
+def _recalculate(item: InventoryItem) -> None:
+    """Keep planner metrics deterministic and explainable.
+
+    Availability is stock coverage against the planner's required/minimum quantity.
+    Reliability is life achievement against expected life using observed average life.
+    Criticality here is planning criticality (stock + life risk), not an FMEA severity score.
+    """
+    if (item.minimum_quantity or 0) > 0:
+        item.availability_pct = round(min(100.0, (item.quantity / item.minimum_quantity) * 100.0), 1)
+    else:
+        item.availability_pct = None
+
+    if (item.expected_life_hours or 0) > 0 and item.observed_avg_life_hours is not None:
+        item.reliability_pct = round(min(100.0, (item.observed_avg_life_hours / item.expected_life_hours) * 100.0), 1)
+    else:
+        item.reliability_pct = None
+
+    availability = item.availability_pct
+    reliability = item.reliability_pct
+    if availability is None and reliability is None:
+        item.criticality = "UNASSESSED"
+        return
+
+    if (item.minimum_quantity or 0) > 0 and item.quantity == 0:
+        item.criticality = "CRITICAL"
+    elif (availability is not None and availability < 50) or (reliability is not None and reliability < 60):
+        item.criticality = "CRITICAL"
+    elif (availability is not None and availability < 75) or (reliability is not None and reliability < 75):
+        item.criticality = "HIGH"
+    elif (availability is not None and availability < 100) or (reliability is not None and reliability < 90):
+        item.criticality = "MEDIUM"
+    else:
+        item.criticality = "LOW"
+
+
 def _transaction_out(tx: InventoryTransaction) -> InventoryTransactionOut:
     return InventoryTransactionOut(
         id=tx.id,
@@ -46,7 +81,16 @@ def list_inventory(include_archived: bool = False, db: Session = Depends(get_db)
     query = db.query(InventoryItem)
     if not include_archived:
         query = query.filter(InventoryItem.is_active.is_(True))
-    return query.order_by(InventoryItem.name).all()
+    items = query.order_by(InventoryItem.name.asc()).all()
+    changed = False
+    for item in items:
+        before = (item.availability_pct, item.reliability_pct, item.criticality)
+        _recalculate(item)
+        after = (item.availability_pct, item.reliability_pct, item.criticality)
+        changed = changed or before != after
+    if changed:
+        db.commit()
+    return items
 
 
 @router.get("/transactions", response_model=list[InventoryTransactionOut])
@@ -61,7 +105,12 @@ def list_transactions(item_id: int | None = None, limit: int = 200, db: Session 
 
 @router.post("/", response_model=InventoryOut, status_code=status.HTTP_201_CREATED)
 def create_inventory(payload: InventoryCreate, db: Session = Depends(get_db), _: User = Depends(require_operator)):
-    item = InventoryItem(**payload.model_dump())
+    data = payload.model_dump()
+    data["availability_pct"] = None
+    data["reliability_pct"] = None
+    data["criticality"] = "UNASSESSED"
+    item = InventoryItem(**data)
+    _recalculate(item)
     db.add(item)
     try:
         db.commit()
@@ -77,8 +126,12 @@ def update_inventory(item_id: int, payload: InventoryUpdate, db: Session = Depen
     item = _get_item(db, item_id)
     if not item.is_active:
         raise HTTPException(409, "Archived inventory items cannot be edited")
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    for protected in ("availability_pct", "reliability_pct", "criticality"):
+        data.pop(protected, None)
+    for key, value in data.items():
         setattr(item, key, value)
+    _recalculate(item)
     try:
         db.commit()
     except IntegrityError:
@@ -101,6 +154,7 @@ def change_quantity(item_id: int, payload: InventoryQuantityChange, db: Session 
         raise HTTPException(400, "Quantity cannot be negative")
 
     item.quantity = after
+    _recalculate(item)
     db.add(InventoryTransaction(
         item_id=item.id,
         quantity_before=before,
@@ -126,6 +180,7 @@ def set_quantity(item_id: int, payload: InventorySetQuantity, db: Session = Depe
 
     delta = payload.quantity - before
     item.quantity = payload.quantity
+    _recalculate(item)
     db.add(InventoryTransaction(
         item_id=item.id,
         quantity_before=before,
