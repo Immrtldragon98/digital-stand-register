@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import Header from "@/components/layout/Header";
 import StandDetails from "@/components/stand/StandDetails";
+import ComponentPreparationModal from "@/components/stand/ComponentPreparationModal";
 import { fetchApi } from "@/lib/api";
 import { AuthUser, canEdit, getUser, isAdmin } from "@/lib/auth";
 
 const ORDER=["READY","HYDROTEST","GAUGING","PENDING","YET_TO_READY"];
 const LABEL:Record<string,string>={READY:"Ready",HYDROTEST:"Hydrotest",GAUGING:"Gauging",PENDING:"Pending",YET_TO_READY:"Yet to Ready"};
 const COLORS:Record<string,string>={READY:"border-emerald-700/70 bg-emerald-950/20 text-emerald-300",HYDROTEST:"border-blue-700/70 bg-blue-950/20 text-blue-300",GAUGING:"border-violet-700/70 bg-violet-950/20 text-violet-300",PENDING:"border-orange-700/70 bg-orange-950/20 text-orange-300",YET_TO_READY:"border-slate-700 bg-slate-900/40 text-slate-300"};
-const NEXT:Record<string,string|undefined>={YET_TO_READY:"PENDING",PENDING:"GAUGING",GAUGING:"HYDROTEST",HYDROTEST:"READY"};
+const NEXT:Record<string,string|undefined>={YET_TO_READY:"PENDING",GAUGING:"HYDROTEST",HYDROTEST:"READY"};
 type Stand={id:number;code:string;current_status:string;lifetime_hours:number};
 
 export default function StandAreaPage(){
@@ -18,6 +19,7 @@ export default function StandAreaPage(){
   const [error,setError]=useState("");
   const [saving,setSaving]=useState(false);
   const [selected,setSelected]=useState<any>(null);
+  const [componentStand,setComponentStand]=useState<Stand|null>(null);
   const [user,setUser]=useState<AuthUser|null>(null);
 
   const load=async()=>{try{setError("");setStands(await fetchApi("/stands/"));}catch(e){setError(e instanceof Error?e.message:"Could not load stands");}finally{setLoading(false)}};
@@ -26,6 +28,7 @@ export default function StandAreaPage(){
 
   async function advance(stand:Stand){
     if(!canEdit(user)){setError("Sign in as Admin or Operator to update stand readiness.");return;}
+    if(stand.current_status==="PENDING"){setComponentStand(stand);return;}
     const target=NEXT[stand.current_status];if(!target)return;
     let who=user?.username||"";let remarks:string|null=null;
     if(["GAUGING","HYDROTEST","READY"].includes(target)){
@@ -56,7 +59,7 @@ export default function StandAreaPage(){
     <Header title="Stand Area" />
     <main className="p-3 md:p-4 flex-1 space-y-2 overflow-hidden">
       <div className="flex items-center justify-between gap-3">
-        <div><h1 className="text-lg font-bold">Stand Preparation</h1><p className="text-xs text-slate-400">Yet to Ready → Pending → Gauging → Hydrotest → Ready</p></div>
+        <div><h1 className="text-lg font-bold">Stand Preparation</h1><p className="text-xs text-slate-400">Yet to Ready → Pending → Components → Gauging → Hydrotest → Ready</p></div>
         <div className="flex gap-2">
           {isAdmin(user)&&<button onClick={addStand} className="text-xs px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 font-semibold">+ New Stand</button>}
           <button onClick={load} className="text-xs px-3 py-1.5 rounded border border-slate-700">Refresh</button>
@@ -70,12 +73,14 @@ export default function StandAreaPage(){
             <div className="col-span-2 rounded-lg bg-black/10 px-2 flex flex-col justify-center"><div className="font-black uppercase text-xs">{LABEL[status]}</div><div className="text-[10px] opacity-70">{groups[status].length} stands</div></div>
             {groups[status].map((stand:Stand)=><div key={stand.id} className="min-w-0 rounded-lg border border-white/15 bg-slate-950/35 px-1.5 py-1.5 flex flex-col justify-between">
               <button onClick={()=>openStand(stand)} className="text-left min-w-0"><div className="font-black text-white text-sm truncate">{stand.code}</div><div className="text-[9px] text-slate-400 truncate">{Number(stand.lifetime_hours||0).toFixed(1)} h</div></button>
-              {canEdit(user)&&NEXT[status]&&<button disabled={saving} onClick={()=>advance(stand)} className="mt-1 text-[9px] rounded border border-white/20 py-1 truncate hover:bg-white/10">→ {LABEL[NEXT[status]!]}</button>}
+              {canEdit(user)&&status==="PENDING"&&<button disabled={saving} onClick={()=>advance(stand)} className="mt-1 text-[9px] rounded border border-blue-400/40 py-1 truncate hover:bg-blue-500/10 text-blue-200">→ Components</button>}
+              {canEdit(user)&&status!=="PENDING"&&NEXT[status]&&<button disabled={saving} onClick={()=>advance(stand)} className="mt-1 text-[9px] rounded border border-white/20 py-1 truncate hover:bg-white/10">→ {LABEL[NEXT[status]!]}</button>}
             </div>)}
           </div>
         </section>)}
       </div>}
     </main>
     {selected&&<div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-5" onClick={()=>setSelected(null)}><div className="max-w-3xl w-full max-h-[88vh] overflow-auto rounded-xl bg-slate-950 border border-slate-700 p-4" onClick={e=>e.stopPropagation()}><div className="flex justify-end mb-2"><button onClick={()=>setSelected(null)} className="text-xs border border-slate-700 px-3 py-1 rounded">Close</button></div><StandDetails stand={selected}/></div></div>}
+    {componentStand&&<ComponentPreparationModal stand={componentStand} onClose={()=>setComponentStand(null)} onComplete={load}/>} 
   </div>;
 }
