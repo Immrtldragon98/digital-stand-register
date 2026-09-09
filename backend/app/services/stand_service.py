@@ -7,7 +7,7 @@ from app.models.stand_installation import StandInstallation
 from app.models.entry_guide_installation import EntryGuideInstallation
 from app.models.stand_position import Position
 from app.models.stand_preparation_event import StandPreparationEvent
-from app.models.stand_component import StandComponentPreparation
+from app.models.stand_component import StandComponentPreparation, StandComponentPreparationItem
 
 
 class StandService:
@@ -84,7 +84,7 @@ class StandService:
                     }
 
         latest_components = self.db.query(StandComponentPreparation).options(
-            joinedload(StandComponentPreparation.items).joinedload("component_type")
+            joinedload(StandComponentPreparation.items).joinedload(StandComponentPreparationItem.component_type)
         ).filter(
             StandComponentPreparation.stand_id == stand_id
         ).order_by(StandComponentPreparation.created_at.desc()).first()
