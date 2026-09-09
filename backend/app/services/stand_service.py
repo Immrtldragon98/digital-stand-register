@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from fastapi import HTTPException
 
 from app.repositories.stand_repository import StandRepository
@@ -7,6 +7,7 @@ from app.models.stand_installation import StandInstallation
 from app.models.entry_guide_installation import EntryGuideInstallation
 from app.models.stand_position import Position
 from app.models.stand_preparation_event import StandPreparationEvent
+from app.models.stand_component import StandComponentPreparation
 
 
 class StandService:
@@ -82,6 +83,35 @@ class StandService:
                         ],
                     }
 
+        latest_components = self.db.query(StandComponentPreparation).options(
+            joinedload(StandComponentPreparation.items).joinedload("component_type")
+        ).filter(
+            StandComponentPreparation.stand_id == stand_id
+        ).order_by(StandComponentPreparation.created_at.desc()).first()
+        component_snapshot = None
+        if latest_components:
+            component_snapshot = {
+                "state": latest_components.state,
+                "prepared_by": latest_components.prepared_by,
+                "notes": latest_components.notes,
+                "created_at": latest_components.created_at,
+                "finalized_at": latest_components.finalized_at,
+                "items": [
+                    {
+                        "name": item.component_type.name,
+                        "required_qty": item.component_type.required_qty,
+                        "new_qty": item.new_qty,
+                        "reused_qty": item.reused_qty,
+                        "carried_life_hours": item.carried_life_hours,
+                        "expected_life_hours": item.component_type.expected_life_hours,
+                        "criticality": item.component_type.criticality,
+                        "current_campaign_hours": current_campaign_hours,
+                        "estimated_total_life_hours": round((item.carried_life_hours or 0.0) + current_campaign_hours, 2),
+                    }
+                    for item in latest_components.items
+                ],
+            }
+
         history = [{
             "position_id": inst.position_id,
             "installed_at": inst.installed_at,
@@ -109,12 +139,14 @@ class StandService:
             "current_location": stand.current_location,
             "current_status": stand.current_status,
             "current_position_id": stand.current_position_id,
+            "position_number": current_position.position_number if current_position else None,
             "lifetime_hours": total_hours,
             "current_campaign_hours": current_campaign_hours,
             "leakage": stand.leakage,
             "vibration": stand.vibration,
             "condition_notes": stand.condition_notes,
             "entry_guide": current_guide,
+            "component_preparation": component_snapshot,
             "history": history,
             "preparation_history": preparation_history,
         }
