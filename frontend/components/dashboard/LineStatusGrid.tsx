@@ -13,6 +13,13 @@ function formatRunTime(hoursValue: unknown) {
   return `${days}d ${remainingHours}h`;
 }
 
+function formatInstalledDate(value: unknown) {
+  if (!value) return "—";
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "2-digit" });
+}
+
 export default function LineStatusGrid({ lines }: { lines: any[] }) {
   const [selected,setSelected]=useState<any>(null);const [error,setError]=useState("");
   if (!lines?.length) return <div className="text-slate-500 text-sm">No running lines mapped.</div>;
@@ -23,7 +30,7 @@ export default function LineStatusGrid({ lines }: { lines: any[] }) {
     <div className="grid gap-3">
       {lines.map((line) => (
         <section key={line.id} className="rounded-xl border border-slate-800 bg-slate-900/45 p-3">
-          <div className="grid grid-cols-[52px_repeat(10,minmax(72px,1fr))] gap-2 items-stretch">
+          <div className="grid grid-cols-[52px_repeat(10,minmax(82px,1fr))] gap-2 items-stretch">
             <div className="rounded-lg bg-slate-950/70 border border-slate-800 flex flex-col items-center justify-center">
               <div className="text-lg font-black text-blue-400">{line.name}</div>
               <div className="text-[10px] text-emerald-400 mt-1">10 / 10</div>
@@ -33,7 +40,9 @@ export default function LineStatusGrid({ lines }: { lines: any[] }) {
               return <button key={position.id} disabled={!stand} onClick={()=>openStand(stand)} className="text-left min-w-0 rounded-lg border border-slate-700 bg-slate-950/45 px-2 py-2 hover:border-blue-500 transition-colors disabled:cursor-default disabled:hover:border-slate-700">
                   <div className="text-[9px] uppercase tracking-wide text-slate-500">P{position.position_number}</div>
                   <div className="text-sm font-bold text-white truncate mt-0.5">{stand?.code || "—"}</div>
-                  <div className="text-[9px] text-slate-400 mt-1 truncate" title={`${stand?.campaign_hours ?? 0} running hours`}>Run: {formatRunTime(stand?.campaign_hours)}</div>
+                  <div className="text-[9px] text-slate-400 mt-1 truncate">Installed: {formatInstalledDate(stand?.installed_at)}</div>
+                  <div className="text-[9px] text-slate-400 truncate" title={`${stand?.campaign_hours ?? 0} running hours`}>Run: {formatRunTime(stand?.campaign_hours)}</div>
+                  {stand?.life_percent!=null&&<div className={`text-[9px] font-semibold truncate ${stand.life_percent>=90?"text-red-300":stand.life_percent>=75?"text-amber-300":"text-emerald-300"}`}>Life: {stand.life_percent}%</div>}
                 </button>;
             })}
           </div>
