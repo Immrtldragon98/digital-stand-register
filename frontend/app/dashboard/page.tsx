@@ -1,3 +1,34 @@
 "use client";
-import{useEffect,useState}from"react";import Header from"@/components/layout/Header";import LineStatusGrid from"@/components/dashboard/LineStatusGrid";import{fetchApi}from"@/lib/api";import{RefreshCw,Activity}from"lucide-react";
-export default function DashboardPage(){const[lines,setLines]=useState<any[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState<string|null>(null);const load=async()=>{try{setError(null);setLines(await fetchApi("/dashboard/"))}catch(e){setError(e instanceof Error?e.message:"Could not load running lines")}finally{setLoading(false)}};useEffect(()=>{load()},[]);const running=lines.reduce((n,l)=>n+(l.positions||[]).filter((p:any)=>p.current_stand).length,0);return <div className="flex-1 min-h-screen text-slate-100"><Header title="Digital Stand Register"/><main className="p-2.5 md:p-4 xl:p-5 full-bleed"><section className="mechanical-panel mb-3 px-3 py-3 md:px-4"><div className="flex items-center justify-between gap-3"><div className="min-w-0"><div className="flex items-center gap-2"><Activity className="w-4 h-4 text-cyan-400"/><span className="text-[9px] uppercase tracking-[.2em] text-cyan-400 font-black">Finishing Mill · Live</span></div><h1 className="text-lg md:text-xl font-black tracking-tight mt-1">Running Stands</h1><p className="text-[10px] text-slate-500 mt-0.5">W1 · W2 · W3 — select any stand for components and history</p></div><div className="flex items-center gap-3 shrink-0"><div className="hidden sm:block text-right"><div className="text-2xl font-black tabular-nums text-emerald-400">{running}<span className="text-xs text-slate-600"> / 30</span></div><div className="metric-label">Running</div></div><button onClick={load} aria-label="Refresh running stands" className="w-9 h-9 grid place-items-center rounded-md border border-slate-700 bg-slate-950/40 text-slate-400 hover:text-cyan-300 hover:border-cyan-800"><RefreshCw className="w-4 h-4"/></button></div></div></section>{loading&&<div className="mechanical-panel p-4 text-slate-500 text-sm">Loading running lines…</div>}{error&&<div className="bg-red-950/40 border border-red-900 rounded-lg p-3 text-red-300 text-sm">{error}</div>}{!loading&&!error&&<LineStatusGrid lines={lines}/>}</main></div>}
+
+import { useEffect, useState } from "react";
+import Header from "@/components/layout/Header";
+import LineStatusGrid from "@/components/dashboard/LineStatusGrid";
+import { fetchApi } from "@/lib/api";
+import { RefreshCw } from "lucide-react";
+
+export default function DashboardPage(){
+  const[lines,setLines]=useState<any[]>([]);
+  const[loading,setLoading]=useState(true);
+  const[error,setError]=useState<string|null>(null);
+  const load=async()=>{try{setError(null);setLines(await fetchApi("/dashboard/"))}catch(e){setError(e instanceof Error?e.message:"Could not load running lines")}finally{setLoading(false)}};
+  useEffect(()=>{load()},[]);
+  const running=lines.reduce((n,l)=>n+(l.positions||[]).filter((p:any)=>p.current_stand).length,0);
+  return <div className="flex-1 min-h-screen text-slate-100">
+    <Header title="Digital Stand Register"/>
+    <main className="p-3 md:p-5 full-bleed">
+      <div className="mb-4 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+        <div>
+          <h1 className="page-title">Running Stands</h1>
+          <p className="page-subtitle mt-1">W1 · W2 · W3 — select a stand to view components and history.</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="text-sm text-slate-300"><span className="font-semibold text-white">{running}</span> / 30 running</div>
+          <button onClick={load} aria-label="Refresh running stands" className="inline-flex items-center gap-2 rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800"><RefreshCw className="w-4 h-4"/>Refresh</button>
+        </div>
+      </div>
+      {loading&&<div className="mechanical-panel p-4 text-slate-400 text-sm">Loading running lines…</div>}
+      {error&&<div className="bg-red-950/30 border border-red-900 rounded-lg p-3 text-red-300 text-sm">{error}</div>}
+      {!loading&&!error&&<LineStatusGrid lines={lines}/>} 
+    </main>
+  </div>;
+}
