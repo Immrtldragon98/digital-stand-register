@@ -1,9 +1,5 @@
 "use client";
 
-export default function Footer() {
-  return (
-    <footer className="bg-industrial-card border-t border-industrial-border py-4 px-6 text-center text-xs text-slate-500">
-      &copy; {new Date().getFullYear()} Digital Stand Register Platform. All industrial rights reserved.
-    </footer>
-  );
+export default function Footer(){
+  return <footer className="hidden md:block border-t border-[#26354a] bg-[#0d1422] px-6 py-3 text-center text-[11px] text-slate-500">Digital Stand Register · Finishing Mill · {new Date().getFullYear()}</footer>;
 }
