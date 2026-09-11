@@ -44,19 +44,30 @@ class DashboardService:
                 active_stand = stands_by_position.get(pos.id)
                 active_guide = guides_by_position.get(pos.id) if pos.position_number in {2, 4, 6, 8, 10} else None
 
+                stand_payload = None
+                if active_stand:
+                    campaign_hours = self._hours(active_stand.installed_at)
+                    target = pos.target_life_hours
+                    life_percent = round((campaign_hours / target) * 100, 1) if target else None
+                    remaining_hours = round(max(0.0, target - campaign_hours), 1) if target else None
+                    stand_payload = {
+                        "id": active_stand.stand.id,
+                        "code": active_stand.stand.code,
+                        "installed_at": active_stand.installed_at,
+                        "campaign_hours": campaign_hours,
+                        "target_life_hours": target,
+                        "life_percent": life_percent,
+                        "remaining_hours": remaining_hours,
+                        "lifetime_hours": round((active_stand.stand.lifetime_hours or 0.0) + campaign_hours, 2),
+                        "leakage": active_stand.stand.leakage,
+                        "vibration": active_stand.stand.vibration,
+                    }
+
                 line_positions.append({
                     "id": pos.id,
                     "position_number": pos.position_number,
                     "entry_guide_applicable": pos.position_number in {2, 4, 6, 8, 10},
-                    "current_stand": {
-                        "id": active_stand.stand.id,
-                        "code": active_stand.stand.code,
-                        "installed_at": active_stand.installed_at,
-                        "campaign_hours": self._hours(active_stand.installed_at),
-                        "lifetime_hours": round((active_stand.stand.lifetime_hours or 0.0) + self._hours(active_stand.installed_at), 2),
-                        "leakage": active_stand.stand.leakage,
-                        "vibration": active_stand.stand.vibration,
-                    } if active_stand else None,
+                    "current_stand": stand_payload,
                     "current_guide": {
                         "id": active_guide.guide.id,
                         "code": active_guide.guide.code,
