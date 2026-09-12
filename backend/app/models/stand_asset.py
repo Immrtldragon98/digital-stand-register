@@ -34,6 +34,7 @@ class StandAsset(Base):
     lifetime_hours = Column(Float, nullable=False, default=0.0)
     leakage = Column(Boolean, nullable=False, default=False)
     vibration = Column(Boolean, nullable=False, default=False)
+    abnormal_sound = Column(Boolean, nullable=False, default=False)
     condition_notes = Column(String(500), nullable=True)
 
     installations = relationship(
