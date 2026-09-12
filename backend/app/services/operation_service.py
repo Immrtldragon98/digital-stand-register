@@ -50,6 +50,13 @@ class OperationService:
             self.db.rollback()
             raise HTTPException(status_code=409, detail=detail) from exc
 
+    @staticmethod
+    def _clear_running_conditions(stand: StandAsset):
+        stand.leakage = False
+        stand.vibration = False
+        stand.abnormal_sound = False
+        stand.condition_notes = None
+
     def install_stand(self, stand_code: str, position_id: int, user_id: int | None, operator_name: str | None = None):
         stand = self._get_stand_locked(stand_code)
         self._get_position_locked(position_id)
@@ -64,6 +71,7 @@ class OperationService:
         if occupied:
             raise HTTPException(status_code=409, detail="Position already has an installed stand.")
         now = datetime.utcnow()
+        self._clear_running_conditions(stand)
         stand.current_location = LocationEnum.WRM_LINE
         stand.current_status = StatusEnum.INSTALLED
         stand.current_position_id = position_id
@@ -136,8 +144,10 @@ class OperationService:
         removed.current_position_id = None
         removed.leakage = payload.leakage
         removed.vibration = payload.vibration
+        removed.abnormal_sound = payload.abnormal_sound
         removed.condition_notes = payload.removed_condition or payload.notes
 
+        self._clear_running_conditions(installed)
         installed.current_location = LocationEnum.WRM_LINE
         installed.current_status = StatusEnum.INSTALLED
         installed.current_position_id = payload.position_id
