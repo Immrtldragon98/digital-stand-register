@@ -61,6 +61,9 @@ class DashboardService:
                         "lifetime_hours": round((active_stand.stand.lifetime_hours or 0.0) + campaign_hours, 2),
                         "leakage": active_stand.stand.leakage,
                         "vibration": active_stand.stand.vibration,
+                        "abnormal_sound": active_stand.stand.abnormal_sound,
+                        "condition_notes": active_stand.stand.condition_notes,
+                        "health": "ATTENTION" if (active_stand.stand.leakage or active_stand.stand.vibration or active_stand.stand.abnormal_sound) else "NORMAL",
                     }
 
                 line_positions.append({
