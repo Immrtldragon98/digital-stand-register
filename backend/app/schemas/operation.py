@@ -38,3 +38,4 @@ class ChangeStandSchema(BaseModel):
     removed_condition: str | None = None
     leakage: bool = False
     vibration: bool = False
+    abnormal_sound: bool = False
