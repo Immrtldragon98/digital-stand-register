@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Home, Wrench, Factory, Package, History, Users, LogIn, LogOut, ClipboardPaste, Database, BrainCircuit, ChevronDown, ChevronRight, FileText, Menu, X, Settings2 } from "lucide-react";
+import { Home, Wrench, Factory, Package, History, Users, LogIn, LogOut, ClipboardPaste, Database, BrainCircuit, ChevronDown, ChevronRight, FileText, Menu, X, Settings2, ServerCog } from "lucide-react";
 import { AuthUser, clearSession, getUser, isAdmin } from "@/lib/auth";
 
 export default function Sidebar(){
  const pathname=usePathname(); const router=useRouter();
  const [user,setUser]=useState<AuthUser|null>(null); const [manageOpen,setManageOpen]=useState(false); const [mobileOpen,setMobileOpen]=useState(false);
  useEffect(()=>{const sync=()=>setUser(getUser());sync();window.addEventListener("dsr-auth-change",sync);window.addEventListener("storage",sync);return()=>{window.removeEventListener("dsr-auth-change",sync);window.removeEventListener("storage",sync)}},[]);
- useEffect(()=>{setMobileOpen(false);if(["/entry-guides","/reports","/import-report","/historical-import","/users","/planning"].includes(pathname))setManageOpen(true)},[pathname]);
+ useEffect(()=>{setMobileOpen(false);if(["/entry-guides","/reports","/import-report","/historical-import","/users","/planning","/system-status"].includes(pathname))setManageOpen(true)},[pathname]);
  const primary=[
   {name:"Home",href:"/dashboard",icon:Home,tone:"text-blue-300"},
   {name:"Stand Area",href:"/stand-area",icon:Factory,tone:"text-amber-300"},
@@ -19,7 +19,7 @@ export default function Sidebar(){
   {name:"History",href:"/activity",icon:History,tone:"text-violet-300"},
   {name:"Intelligence",href:"/intelligence",icon:BrainCircuit,tone:"text-cyan-300"}
  ];
- const manage=[{name:"Entry Guides",href:"/entry-guides",icon:Settings2},{name:"Reports",href:"/reports",icon:FileText},...(user?[{name:"Import Report",href:"/import-report",icon:ClipboardPaste},{name:"Historical Data",href:"/historical-import",icon:Database}]:[]),...(isAdmin(user)?[{name:"Users",href:"/users",icon:Users}]:[])];
+ const manage=[{name:"Entry Guides",href:"/entry-guides",icon:Settings2},{name:"Reports",href:"/reports",icon:FileText},...(user?[{name:"Import Report",href:"/import-report",icon:ClipboardPaste},{name:"Historical Data",href:"/historical-import",icon:Database}]:[]),...(isAdmin(user)?[{name:"System Status",href:"/system-status",icon:ServerCog},{name:"Users",href:"/users",icon:Users}]:[])];
  const active=(href:string)=>pathname===href||(href==="/intelligence"&&pathname==="/investigation");
  const item=(i:any)=>{const I=i.icon;const isActive=active(i.href);return <Link key={i.href} href={i.href} className={`nav-item ${isActive?"nav-item-active":""}`}><I className={`w-4 h-4 shrink-0 ${isActive?(i.tone||"text-blue-300"):"text-slate-500"}`}/><span>{i.name}</span></Link>};
  const logout=()=>{clearSession();setUser(null);router.push("/dashboard")};
