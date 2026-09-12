@@ -10,6 +10,8 @@ from app.database.session import get_db
 from app.models.enums import LocationEnum, StatusEnum
 from app.models.stand_asset import StandAsset
 from app.models.stand_component import StandComponentPreparation, StandComponentPreparationItem, StandComponentType
+from app.models.stand_event import StandCampaignEvent
+from app.models.stand_installation import StandInstallation
 from app.models.user import User
 from app.services.stand_service import StandService
 
@@ -34,6 +36,13 @@ class ComponentPreparationInput(BaseModel):
     prepared_by: str = Field(min_length=1, max_length=100)
     notes: str | None = Field(default=None, max_length=1000)
     skip: bool = False
+
+
+class RunningConditionInput(BaseModel):
+    leakage: bool | None = None
+    vibration: bool | None = None
+    abnormal_sound: bool | None = None
+    notes: str | None = Field(default=None, max_length=500)
 
 
 def _position_number(code: str) -> int | None:
@@ -100,6 +109,59 @@ def create_stand(payload: CreateStandSchema, db: Session = Depends(get_db), _: U
         "current_status": stand.current_status,
         "current_location": stand.current_location,
         "lifetime_hours": stand.lifetime_hours,
+    }
+
+
+@router.patch("/{stand_id}/condition")
+def update_running_condition(
+    stand_id: int,
+    payload: RunningConditionInput,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_operator),
+):
+    stand = db.get(StandAsset, stand_id)
+    if not stand:
+        raise HTTPException(404, "Stand not found")
+    active = db.query(StandInstallation).filter(
+        StandInstallation.stand_id == stand.id,
+        StandInstallation.removed_at.is_(None),
+    ).first()
+    if not active:
+        raise HTTPException(400, "Condition flags can be updated only while the stand is running.")
+
+    changes = []
+    for field, label in (("leakage", "Leakage"), ("vibration", "Vibration"), ("abnormal_sound", "Abnormal sound")):
+        value = getattr(payload, field)
+        if value is None:
+            continue
+        old = bool(getattr(stand, field))
+        if old == value:
+            continue
+        setattr(stand, field, value)
+        changes.append((label, value))
+        db.add(StandCampaignEvent(
+            stand_id=stand.id,
+            installation_id=active.id,
+            category="OBSERVATION",
+            event_type=f"{label} {'observed' if value else 'cleared'}",
+            severity="MEDIUM" if value else "LOW",
+            description=(payload.notes or "").strip() or None,
+            action_taken="Condition flag updated from running stand view",
+            recorded_by=user.username,
+            event_at=datetime.utcnow(),
+            created_at=datetime.utcnow(),
+        ))
+
+    if payload.notes is not None:
+        stand.condition_notes = payload.notes.strip() or None
+    db.commit()
+    return {
+        "stand_id": stand.id,
+        "leakage": stand.leakage,
+        "vibration": stand.vibration,
+        "abnormal_sound": stand.abnormal_sound,
+        "condition_notes": stand.condition_notes,
+        "changes": [{"condition": label, "active": value} for label, value in changes],
     }
 
 
