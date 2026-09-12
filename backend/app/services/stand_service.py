@@ -30,6 +30,7 @@ class StandService:
                 "lifetime_hours": stand.lifetime_hours,
                 "leakage": stand.leakage,
                 "vibration": stand.vibration,
+                "abnormal_sound": stand.abnormal_sound,
             }
             for stand in self.stand_repo.get_all()
         ]
@@ -145,6 +146,7 @@ class StandService:
             "current_campaign_hours": current_campaign_hours,
             "leakage": stand.leakage,
             "vibration": stand.vibration,
+            "abnormal_sound": stand.abnormal_sound,
             "condition_notes": stand.condition_notes,
             "entry_guide": current_guide,
             "component_preparation": component_snapshot,
