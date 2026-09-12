@@ -2,11 +2,15 @@ from collections import Counter, defaultdict
 from datetime import timedelta
 from statistics import mean, median
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
+from app.models.line import Line
 from app.models.reliability_history import HistoricalCampaign, HistoricalSpareUsage, ProcessObservation
+from app.models.stand_event import StandCampaignEvent
+from app.models.stand_installation import StandInstallation
+from app.models.stand_position import Position
 
 router = APIRouter()
 
@@ -48,18 +52,63 @@ def _med(values):
     return round(median(vals), 2) if vals else None
 
 
+def _live_events(db: Session, line: str, position: int):
+    rows = (
+        db.query(StandCampaignEvent, StandInstallation)
+        .join(StandInstallation, StandCampaignEvent.installation_id == StandInstallation.id)
+        .join(Position, StandInstallation.position_id == Position.id)
+        .join(Line, Position.line_id == Line.id)
+        .filter(Line.name == line, Position.position_number == position)
+        .order_by(StandCampaignEvent.event_at.desc())
+        .limit(50)
+        .all()
+    )
+    return [
+        {
+            "id": event.id,
+            "stand_id": event.stand_id,
+            "category": event.category,
+            "event_type": event.event_type,
+            "severity": event.severity,
+            "component_name": event.component_name,
+            "duration_minutes": event.duration_minutes,
+            "description": event.description,
+            "action_taken": event.action_taken,
+            "event_at": event.event_at.isoformat() if event.event_at else None,
+            "recorded_by": event.recorded_by,
+            "campaign_installed_at": installation.installed_at.isoformat() if installation.installed_at else None,
+            "campaign_removed_at": installation.removed_at.isoformat() if installation.removed_at else None,
+        }
+        for event, installation in rows
+    ]
+
+
 @router.get("/position")
 def investigate_position(
     line: str = Query(..., pattern="^W[123]$"),
     position: int = Query(..., ge=1, le=10),
     db: Session = Depends(get_db),
 ):
+    live_events = _live_events(db, line, position)
+    event_types = Counter((e["event_type"] or "UNSPECIFIED").strip().upper() for e in live_events)
+    event_components = Counter((e["component_name"] or "").strip() for e in live_events if e.get("component_name"))
+    stoppages = sum(1 for e in live_events if e["severity"] == "STOPPAGE")
+    downtime_minutes = round(sum(float(e.get("duration_minutes") or 0) for e in live_events), 1)
+
     campaigns = db.query(HistoricalCampaign).filter(
         HistoricalCampaign.line_name == line,
         HistoricalCampaign.position_number == position,
         HistoricalCampaign.life_days.isnot(None),
     ).order_by(HistoricalCampaign.installed_date.desc()).all()
     valid = [c for c in campaigns if c.life_days is not None and c.life_days > 0]
+    event_summary = {
+        "count": len(live_events),
+        "stoppages": stoppages,
+        "downtime_minutes": downtime_minutes,
+        "top_types": [{"event": k, "count": v} for k, v in event_types.most_common(8)],
+        "top_components": [{"component": k, "count": v} for k, v in event_components.most_common(8)],
+    }
+
     if not valid:
         return {
             "line": line,
@@ -71,6 +120,8 @@ def investigate_position(
             "stand_codes": [],
             "nearby_spares": [],
             "process": [],
+            "live_events": live_events,
+            "event_summary": event_summary,
         }
 
     lives = [c.life_days for c in valid]
@@ -113,7 +164,6 @@ def investigate_position(
         })
     stand_codes.sort(key=lambda x: (x["avg_days"] if x["avg_days"] is not None else 999999, -x["campaigns"]))
 
-    # Spare history is independent from stand history. We only screen consumption within ±2 days of early removals.
     spare_rows = db.query(HistoricalSpareUsage).all()
     nearby_spares = defaultdict(float)
     matched_spare_days = set()
@@ -128,7 +178,6 @@ def investigate_position(
         key=lambda x: x["quantity"], reverse=True,
     )[:15]
 
-    # Process parameters remain a separate evidence stream. Compare observations during early campaign windows with all line observations.
     all_process = db.query(ProcessObservation).filter(ProcessObservation.line_name == line).all()
     early_process = []
     for o in all_process:
@@ -168,5 +217,7 @@ def investigate_position(
         "nearby_spares": nearby_spares,
         "spare_match_days": len(matched_spare_days),
         "process": process_results,
-        "method_note": "Stand history, spare usage and process parameters remain separate datasets. The page aligns them by date only for engineering screening. Associations are not confirmed root causes.",
+        "live_events": live_events,
+        "event_summary": event_summary,
+        "method_note": "Live campaign events are exact records linked to stand installations. Imported stand history, spare usage and process parameters remain separate evidence streams. Date alignment is screening evidence, not confirmed root cause.",
     }
