@@ -140,6 +140,7 @@ class StandService:
             "current_status": stand.current_status,
             "current_position_id": stand.current_position_id,
             "position_number": current_position.position_number if current_position else None,
+            "current_installed_at": active.installed_at if active else None,
             "lifetime_hours": total_hours,
             "current_campaign_hours": current_campaign_hours,
             "leakage": stand.leakage,
