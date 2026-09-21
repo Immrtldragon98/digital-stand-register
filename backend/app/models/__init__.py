@@ -14,3 +14,4 @@ from app.models.knowledge_document import KnowledgeDocument, KnowledgeChunk
 from app.models.reliability_history import HistoricalCampaign, HistoricalSpareUsage, ProcessObservation
 from app.models.stand_component import StandComponentType, StandComponentPreparation, StandComponentPreparationItem
 from app.models.stand_event import StandCampaignEvent
+from app.models.pm_activity import PMActivity\n
