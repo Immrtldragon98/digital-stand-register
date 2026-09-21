@@ -72,3 +72,7 @@ button{outline:none}
 
 /* Industrial control-room refinements */
 .dsr-table tbody tr:hover .dsr-td{background:#151F2E}.dsr-th{position:sticky;top:0;z-index:2;background:#151F2E}.table-input{min-width:86px;width:100%;border:1px solid transparent;background:transparent;color:#e2e8f0;border-radius:4px;padding:5px 6px}.table-input:focus{outline:none;border-color:#4EA1FF;background:#0B111D}.status-ok,.status-warn{display:inline-flex;border-radius:999px;padding:3px 7px;font-size:9px;font-weight:700;letter-spacing:.04em}.status-ok{background:rgba(52,211,153,.10);color:#86efac}.status-warn{background:rgba(251,191,36,.10);color:#fcd34d}
+
+/* Global density + hierarchy pass */
+.mechanical-panel,.dsr-stat,.dsr-table-wrap{box-shadow:none}.dsr-panel-head{padding:12px 14px}.dsr-main{padding-top:12px}.dsr-kicker{color:#7f8da0;font-size:9px}.dsr-title{font-size:1.18rem}.dsr-subtitle{color:#94a3b8}.dsr-btn,.dsr-btn-primary{border-radius:6px;min-height:34px}.dsr-btn-primary{background:#2563eb;border-color:#3b82f6}.dsr-chip{border-radius:5px;background:#151F2E}.dsr-stat{padding:10px;border-radius:7px}.dsr-stat-value{font-size:1.2rem;font-weight:600}.dsr-table-wrap{border-radius:7px}.dsr-th{padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.035em}.dsr-td{padding:8px 10px}.input-class{border-radius:6px;background:#0B111D}.screen-grid{gap:8px}
+@media(max-width:900px){.dsr-main{padding:10px 8px 16px}.dsr-panel-head{padding:11px 12px}.dsr-btn,.dsr-btn-primary{min-height:40px}}
