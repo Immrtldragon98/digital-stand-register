@@ -15,7 +15,7 @@ export default function Sidebar(){
   {name:"Home",href:"/dashboard",icon:Home,tone:"text-blue-300"},
   {name:"Stand Area",href:"/stand-area",icon:Factory,tone:"text-amber-300"},
   {name:"Stand Change",href:"/operations",icon:Wrench,tone:"text-rose-300"},
-  {name:"PM Schedule",href:"/pm-schedule",icon:CalendarDays,tone:"text-teal-300"},
+  {name:"PM Activities",href:"/pm-schedule",icon:CalendarDays,tone:"text-teal-300"},
   {name:"Spare Life",href:"/inventory",icon:Package,tone:"text-emerald-300"},
   {name:"History",href:"/activity",icon:History,tone:"text-violet-300"},
   {name:"Intelligence",href:"/intelligence",icon:BrainCircuit,tone:"text-cyan-300"}
