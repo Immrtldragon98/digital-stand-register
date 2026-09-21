@@ -18,4 +18,5 @@ api_router.include_router(historical.router, prefix="/historical", tags=["Histor
 api_router.include_router(planning.router, prefix="/planning", tags=["Planning"])
 api_router.include_router(intelligence.router, prefix="/intelligence", tags=["Campaign Intelligence"])
 api_router.include_router(investigation.router, prefix="/investigation", tags=["Stand Life Investigation"])
-api_router.include_router(system.router, prefix="/system", tags=["System Status"])\napi_router.include_router(pm.router, prefix="/pm", tags=["PM Schedule"])
+api_router.include_router(system.router, prefix="/system", tags=["System Status"])
+api_router.include_router(pm.router, prefix="/pm", tags=["PM Schedule"])
