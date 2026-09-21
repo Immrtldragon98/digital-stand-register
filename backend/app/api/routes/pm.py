@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.auth.dependencies import require_operator, require_admin
 from app.database.session import get_db
 from app.models.pm_activity import PMActivity
-from app.models.user import User
+from app.models.user import User\nfrom app.models.line import Line\nfrom app.models.stand_position import Position\nfrom app.schemas.operation import ChangeStandSchema\nfrom app.services.operation_service import OperationService
 router=APIRouter()
 STATUSES={"PLANNED","DUE","COMPLETED","DEFERRED"}
 TYPES={"STAND_CHANGE","COUPLER_CHANGE","PIVOT_CHANGE","ENTRY_GUIDE","BEARING","OIL_SEAL","LUBRICATION","INSPECTION","ADJUSTMENT","BREAKDOWN","OTHER"}
@@ -111,4 +111,23 @@ def confirm_message(p:ConfirmInput,db:Session=Depends(get_db),user:User=Depends(
         except Exception as e: saved.append({"status":"SKIPPED","message":str(e),"activity":a});continue
         x=PMActivity(created_by=user.username,updated_by=user.username,created_at=datetime.utcnow(),updated_at=datetime.utcnow());apply(x,payload,user);db.add(x);saved.append({"status":"SAVED","activity":a})
     db.commit()
-    return {"saved":sum(1 for x in saved if x["status"]=="SAVED"),"results":saved,"confirmed_by":user.username}
+    # Only execute an existing DSR operation when the reviewed row has every mandatory fact.
+    # The LLM never bypasses OperationService validation.
+    performed=[]
+    service=OperationService(db)
+    for a in p.activities:
+        if (a.get("activity_type") or "").upper()!="STAND_CHANGE": continue
+        required=[a.get("line_name"),a.get("position_number"),a.get("from_value"),a.get("to_value"),a.get("assigned_to"),a.get("remarks")]
+        if not all(required):
+            performed.append({"status":"REVIEW_ONLY","activity":a,"message":"Stored in maintenance history. Stand change not executed because line, position, old/new stand, changed-by or reason is missing."});continue
+        line=db.query(Line).filter(Line.name==str(a["line_name"]).upper()).first()
+        pos=db.query(Position).filter(Position.line_id==line.id,Position.position_number==int(a["position_number"])).first() if line else None
+        if not pos:
+            performed.append({"status":"NOT_PERFORMED","activity":a,"message":"Line/position not found."});continue
+        try:
+            when=datetime.combine(date.fromisoformat(a["planned_date"]),datetime.min.time())
+            result=service.change_stand(ChangeStandSchema(position_id=pos.id,removed_stand_code=str(a["from_value"]).upper(),installed_stand_code=str(a["to_value"]).upper(),changed_by=str(a["assigned_to"]),reason=str(a["remarks"]),changed_at=when,notes="Confirmed from PM Activities message import"),user.id)
+            performed.append({"status":"PERFORMED","activity":a,"result":result})
+        except Exception as exc:
+            db.rollback();performed.append({"status":"NOT_PERFORMED","activity":a,"message":getattr(exc,"detail",str(exc))})
+    return {"saved":sum(1 for x in saved if x["status"]=="SAVED"),"results":saved,"operations":performed,"confirmed_by":user.username}
