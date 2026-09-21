@@ -5,7 +5,7 @@ Revises: 20260912_campaign_events
 from alembic import op
 import sqlalchemy as sa
 revision="20260912_pm_activities"
-down_revision="20260912_campaign_events"
+down_revision="20260912_condition_flags"
 branch_labels=None
 depends_on=None
 
