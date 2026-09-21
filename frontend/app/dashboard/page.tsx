@@ -9,7 +9,8 @@ import { RefreshCw } from "lucide-react";
 export default function DashboardPage(){
   const[lines,setLines]=useState<any[]>([]);
   const[loading,setLoading]=useState(true);
-  const[error,setError]=useState<string|null>(null);\n  const[lastUpdated,setLastUpdated]=useState<string|null>(null);
+  const[error,setError]=useState<string|null>(null);
+  const[lastUpdated,setLastUpdated]=useState<string|null>(null);
   const load=async()=>{try{setError(null);setLines(await fetchApi("/dashboard/"));setLastUpdated(new Date().toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}))}catch(e){setError(e instanceof Error?e.message:"Could not load running lines")}finally{setLoading(false)}};
   useEffect(()=>{load()},[]);
   const running=lines.reduce((n,l)=>n+(l.positions||[]).filter((p:any)=>p.current_stand).length,0);
