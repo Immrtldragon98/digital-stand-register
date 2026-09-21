@@ -10,11 +10,11 @@ import { AuthUser, canEdit, getUser, isAdmin } from "@/lib/auth";
 const ORDER=["READY","HYDROTEST","GAUGING","PENDING","YET_TO_READY"];
 const LABEL:Record<string,string>={READY:"Ready",HYDROTEST:"Hydrotest",GAUGING:"Gauging",PENDING:"Pending",YET_TO_READY:"Unstarted"};
 const STYLE:Record<string,{row:string,label:string,card:string,button:string,dot:string}>={
-  READY:{row:"border-emerald-800/70 bg-emerald-950/18",label:"text-emerald-300",card:"border-emerald-900/60 bg-emerald-950/16 hover:border-emerald-600",button:"border-emerald-700 text-emerald-200 hover:bg-emerald-950/50",dot:"bg-emerald-400"},
-  HYDROTEST:{row:"border-blue-800/70 bg-blue-950/18",label:"text-blue-300",card:"border-blue-900/60 bg-blue-950/16 hover:border-blue-600",button:"border-blue-700 text-blue-200 hover:bg-blue-950/50",dot:"bg-blue-400"},
-  GAUGING:{row:"border-violet-800/70 bg-violet-950/18",label:"text-violet-300",card:"border-violet-900/60 bg-violet-950/16 hover:border-violet-600",button:"border-violet-700 text-violet-200 hover:bg-violet-950/50",dot:"bg-violet-400"},
-  PENDING:{row:"border-amber-800/70 bg-amber-950/18",label:"text-amber-300",card:"border-amber-900/60 bg-amber-950/16 hover:border-amber-600",button:"border-amber-700 text-amber-200 hover:bg-amber-950/50",dot:"bg-amber-400"},
-  YET_TO_READY:{row:"border-slate-700 bg-slate-900/35",label:"text-slate-300",card:"border-slate-700 bg-slate-950/45 hover:border-slate-500",button:"border-slate-600 text-slate-200 hover:bg-slate-800",dot:"bg-slate-500"},
+  READY:{row:"border-slate-800 border-l-2 border-l-emerald-600 bg-[#101827]",label:"text-emerald-300",card:"border-slate-700 bg-[#0B111D] hover:bg-[#151F2E]",button:"border-slate-600 text-emerald-200 hover:bg-[#151F2E]",dot:"bg-emerald-400"},
+  HYDROTEST:{row:"border-slate-800 border-l-2 border-l-blue-600 bg-[#101827]",label:"text-blue-300",card:"border-slate-700 bg-[#0B111D] hover:bg-[#151F2E]",button:"border-slate-600 text-blue-200 hover:bg-[#151F2E]",dot:"bg-blue-400"},
+  GAUGING:{row:"border-slate-800 border-l-2 border-l-violet-600 bg-[#101827]",label:"text-violet-300",card:"border-slate-700 bg-[#0B111D] hover:bg-[#151F2E]",button:"border-slate-600 text-violet-200 hover:bg-[#151F2E]",dot:"bg-violet-400"},
+  PENDING:{row:"border-slate-800 border-l-2 border-l-amber-600 bg-[#101827]",label:"text-amber-300",card:"border-slate-700 bg-[#0B111D] hover:bg-[#151F2E]",button:"border-slate-600 text-amber-200 hover:bg-[#151F2E]",dot:"bg-amber-400"},
+  YET_TO_READY:{row:"border-slate-800 border-l-2 border-l-slate-600 bg-[#101827]",label:"text-slate-300",card:"border-slate-700 bg-[#0B111D] hover:bg-[#151F2E]",button:"border-slate-600 text-slate-200 hover:bg-[#151F2E]",dot:"bg-slate-500"},
 };
 const NEXT:Record<string,string|undefined>={YET_TO_READY:"PENDING",GAUGING:"HYDROTEST",HYDROTEST:"READY"};
 type Stand={id:number;code:string;current_status:string;lifetime_hours:number};
