@@ -71,8 +71,10 @@ npm run build
 
 ## Render deployment
 
-`render.yaml` plans two free web services in Singapore and a dedicated paid
-PostgreSQL database (`0.1c-256mb`, 1 GB). Review Render's price before applying.
+`render.yaml` plans two free web services in Singapore. PostgreSQL runs in the
+dedicated Neon Free project `digital-stand-register` (`withered-lake-09762482`).
+Supply its connection string as the API service's secret `DATABASE_URL` during
+Blueprint setup; never commit credentials. Free-tier resource limits apply.
 No existing resources are adopted. The database starts empty; this does not migrate
 an existing plant database or automatically seed an old commissioning snapshot.
 

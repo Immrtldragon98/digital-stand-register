@@ -1,4 +1,4 @@
-# New deployment in the confirmed Render workspace. Applying requires plan approval.
+# Free web services in Render; DATABASE_URL comes from the dedicated Neon Free project.
 services:
   - type: web
     name: digital-stand-register-api
@@ -12,9 +12,7 @@ services:
     autoDeployTrigger: commit
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: digital-stand-register-db
-          property: connectionString
+        sync: false
       - key: SECRET_KEY
         generateValue: true
       - key: CORS_ORIGINS
@@ -40,11 +38,3 @@ services:
           type: web
           envVarKey: RENDER_EXTERNAL_URL
 
-databases:
-  - name: digital-stand-register-db
-    region: singapore
-    plan: 0.1c-256mb
-    diskSizeGB: 1
-    databaseName: digital_stand_register
-    user: dsr
-    ipAllowList: []
