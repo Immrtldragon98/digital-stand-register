@@ -8,7 +8,10 @@ const nextConfig = {
   async rewrites() {
     // Browser requests stay on the frontend origin; Render supplies the API origin.
     const apiOrigin = (process.env.DSR_API_ORIGIN || "http://localhost:8000").replace(/\/$/, "");
-    return [{ source: "/api/v1/:path*", destination: `${apiOrigin}/api/v1/:path*` }];
+    return [
+      { source: "/api/v1/:path*/", destination: `${apiOrigin}/api/v1/:path*/` },
+      { source: "/api/v1/:path*", destination: `${apiOrigin}/api/v1/:path*` },
+    ];
   },
 };
 
