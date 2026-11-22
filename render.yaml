@@ -1,0 +1,50 @@
+# New deployment in the confirmed Render workspace. Applying requires plan approval.
+services:
+  - type: web
+    name: digital-stand-register-api
+    runtime: docker
+    region: singapore
+    plan: free
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: digital-stand-register-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: ""
+  - type: web
+    name: digital-stand-register-web
+    runtime: node
+    region: singapore
+    plan: free
+    branch: main
+    buildCommand: cd frontend && npm ci --include=dev && npm run test:api && npm run build
+    startCommand: cd frontend && npm run start -- --hostname 0.0.0.0 --port $PORT
+    healthCheckPath: /operations
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: DSR_API_ORIGIN
+        fromService:
+          name: digital-stand-register-api
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+
+databases:
+  - name: digital-stand-register-db
+    region: singapore
+    plan: 0.1c-256mb
+    diskSizeGB: 1
+    databaseName: digital_stand_register
+    user: dsr
+    ipAllowList: []

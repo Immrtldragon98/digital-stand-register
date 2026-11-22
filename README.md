@@ -68,3 +68,20 @@ cd frontend
 npm ci
 npm run build
 ```
+
+## Render deployment
+
+`render.yaml` plans two free web services in Singapore and a dedicated paid
+PostgreSQL database (`0.1c-256mb`, 1 GB). Review Render's price before applying.
+No existing resources are adopted. The database starts empty; this does not migrate
+an existing plant database or automatically seed an old commissioning snapshot.
+
+Browser API requests use `/api/v1` on the frontend origin. Next.js forwards them
+to `DSR_API_ORIGIN`, populated from the API service URL. Local development defaults
+to `http://localhost:8000`. An explicitly configured `NEXT_PUBLIC_API_URL` still
+supports separate frontend and backend origins.
+
+The API runs Alembic migrations before startup. Render generates its signing key.
+After deployment, verify `/health`, the frontend `/operations` and `/intelligence`
+pages, and read API responses before commissioning plant data. Create the first
+admin through the existing first-setup flow before sharing the new instance.
