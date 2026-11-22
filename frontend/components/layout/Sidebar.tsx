@@ -16,7 +16,7 @@ export default function Sidebar(){
   {name:"Stand Area",href:"/stand-area",icon:Factory},
   {name:"Stand Change",href:"/operations",icon:Wrench},
   {name:"PM Activities",href:"/pm-schedule",icon:CalendarDays},
-  {name:"Spare Life",href:"/inventory",icon:Package},
+  {name:"Spares",href:"/inventory",icon:Package},
   {name:"History",href:"/activity",icon:History},
   {name:"Intelligence",href:"/intelligence",icon:BrainCircuit}
  ];

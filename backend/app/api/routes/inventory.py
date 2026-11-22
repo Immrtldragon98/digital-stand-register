@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -7,6 +8,8 @@ from app.database.session import get_db
 from app.models.inventory_item import InventoryItem
 from app.models.inventory_transaction import InventoryTransaction
 from app.models.user import User
+from app.models.activity_log import ActivityLog
+from app.services.spare_report_service import present_spare_report
 from app.schemas.inventory import (
     InventoryCreate,
     InventoryOut,
@@ -91,6 +94,16 @@ def list_inventory(include_archived: bool = False, db: Session = Depends(get_db)
     if changed:
         db.commit()
     return items
+
+
+@router.get("/report")
+def workbook_spare_report(db: Session = Depends(get_db)):
+    latest = (db.query(ActivityLog)
+              .filter(ActivityLog.action == "SPARE_WORKBOOK_IMPORT")
+              .order_by(ActivityLog.timestamp.desc(), ActivityLog.id.desc()).first())
+    if latest is None:
+        return {"available": False}
+    return present_spare_report(json.loads(latest.details))
 
 
 @router.get("/transactions", response_model=list[InventoryTransactionOut])
