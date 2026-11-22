@@ -76,3 +76,9 @@ button{outline:none}
 /* Global density + hierarchy pass */
 .mechanical-panel,.dsr-stat,.dsr-table-wrap{box-shadow:none}.dsr-panel-head{padding:12px 14px}.dsr-main{padding-top:12px}.dsr-kicker{color:#7f8da0;font-size:9px}.dsr-title{font-size:1.18rem}.dsr-subtitle{color:#94a3b8}.dsr-btn,.dsr-btn-primary{border-radius:6px;min-height:34px}.dsr-btn-primary{background:#2563eb;border-color:#3b82f6}.dsr-chip{border-radius:5px;background:#151F2E}.dsr-stat{padding:10px;border-radius:7px}.dsr-stat-value{font-size:1.2rem;font-weight:600}.dsr-table-wrap{border-radius:7px}.dsr-th{padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.035em}.dsr-td{padding:8px 10px}.input-class{border-radius:6px;background:#0B111D}.screen-grid{gap:8px}
 @media(max-width:900px){.dsr-main{padding:10px 8px 16px}.dsr-panel-head{padding:11px 12px}.dsr-btn,.dsr-btn-primary{min-height:40px}}
+
+/* Keep the same route names in the sidebar and compact navigation. */
+.mobile-nav-item span{max-width:100%;text-align:center;line-height:1.15;padding:0 2px;overflow-wrap:normal}
+.mobile-nav-item[aria-current="page"]{color:var(--blue)}
+button:disabled{cursor:not-allowed;opacity:.5}
+button:focus-visible,a:focus-visible{outline:2px solid var(--blue);outline-offset:3px}

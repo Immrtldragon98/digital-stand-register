@@ -20,15 +20,35 @@ function clearReadCache() {
 async function request(endpoint: string, options: RequestInit) {
   const token = getToken();
   const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    headers: {
-      ...(isFormData ? {} : { "Content-Type": "application/json" }),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-    cache: "no-store",
-    ...options,
-  });
+  // Cold starts may take tens of seconds; bound reads so the UI can offer Retry.
+  // Never automatically retry writes: a timed-out stand change may already be saved.
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  if (options.signal?.aborted) controller.abort();
+  else options.signal?.addEventListener("abort", onAbort, { once: true });
+  const timeout = (options.method || "GET").toUpperCase() === "GET"
+    ? setTimeout(() => controller.abort(), 60_000) : undefined;
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        ...(isFormData ? {} : { "Content-Type": "application/json" }),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+      cache: "no-store",
+    });
+  } catch (error) {
+    if (controller.signal.aborted && !options.signal?.aborted) {
+      throw new Error("The connection timed out. The service may still be starting; please retry.");
+    }
+    throw error;
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+    options.signal?.removeEventListener("abort", onAbort);
+  }
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
