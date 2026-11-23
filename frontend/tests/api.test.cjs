@@ -23,7 +23,7 @@ const json = value => new Response(JSON.stringify(value), { headers: { 'content-
 test('a failed read is retryable and successful reads are cached', async () => {
   let calls = 0;
   const api = client(async () => ++calls === 1
-    ? new Response('{"detail":"Service warming up"}', { status: 503, headers: { 'content-type': 'application/json' } })
+    ? new Response('{"detail":"Service warming up"}', { status: 500, headers: { 'content-type': 'application/json' } })
     : json({ ready: 3 }));
   await assert.rejects(api.fetchApi('/stands/'), /Service warming up/);
   assert.equal((await api.fetchApi('/stands/')).ready, 3);
@@ -77,5 +77,21 @@ test('failed writes are not automatically retried', async () => {
   const api = client(async () => { calls++; throw new Error('Disconnected'); });
   await assert.rejects(api.fetchApi('/operations/stands/change', { method: 'POST', body: '{}' }), /Disconnected/);
   assert.equal(calls, 1);
+  assert.equal(api.timers.size, 0);
+});
+
+ test('gateway errors on reads recover automatically during cold start', async () => {
+  let calls = 0;
+  const api = client(async () => ++calls < 3 ? new Response('', {status: 502}) : json({ready: 30}));
+  const result = api.fetchApi('/dashboard/');
+  for (let i = 0; i < 2; i++) {
+    await new Promise(resolve => setImmediate(resolve));
+    const entry = [...api.timers.entries()].find(([,timer]) => timer.delay === 2000);
+    assert.ok(entry);
+    api.timers.delete(entry[0]);
+    entry[1].callback();
+  }
+  assert.equal((await result).ready, 30);
+  assert.equal(calls, 3);
   assert.equal(api.timers.size, 0);
 });

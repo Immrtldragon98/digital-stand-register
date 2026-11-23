@@ -30,6 +30,8 @@ async function request(endpoint: string, options: RequestInit) {
     ? setTimeout(() => controller.abort(), 60_000) : undefined;
   let response: Response;
   try {
+    const read = (options.method || "GET").toUpperCase() === "GET";
+    for (let attempt = 0; ; attempt++) {
     response = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
       signal: controller.signal,
@@ -40,6 +42,20 @@ async function request(endpoint: string, options: RequestInit) {
       },
       cache: "no-store",
     });
+    // Render can return gateway errors while a sleeping API wakes up.
+    // Retry only reads, within the original overall timeout.
+    if (!read || ![502, 503, 504].includes(response.status) || attempt >= 3) break;
+    await response.body?.cancel();
+    await new Promise<void>((resolve, reject) => {
+      const abort = () => { clearTimeout(delay); reject(new Error("aborted")); };
+      const delay = setTimeout(() => {
+        controller.signal.removeEventListener("abort", abort);
+        resolve();
+      }, 2000);
+      if (controller.signal.aborted) abort();
+      else controller.signal.addEventListener("abort", abort, { once: true });
+    });
+    }
   } catch (error) {
     if (controller.signal.aborted && !options.signal?.aborted) {
       throw new Error("The connection timed out. The service may still be starting; please retry.");
@@ -52,7 +68,9 @@ async function request(endpoint: string, options: RequestInit) {
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || `API request failed with status ${response.status}`);
+    throw new Error(errorData.detail || ([502, 503, 504].includes(response.status)
+      ? "The service is waking up or temporarily unavailable. Please retry shortly."
+      : `API request failed with status ${response.status}`));
   }
 
   const contentType = response.headers.get("content-type") || "";
