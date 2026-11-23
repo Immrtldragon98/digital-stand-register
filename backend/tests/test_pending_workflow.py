@@ -76,9 +76,10 @@ def test_removal_returns_stand_to_pending_and_closes_campaign(db):
     assert db.query(StandInstallation).one().removed_at is not None
 
 
-def test_replacement_returns_old_stand_to_pending(db):
+@pytest.mark.parametrize("replacement_id", [None, 0])
+def test_replacement_returns_old_stand_to_pending(db, replacement_id):
     old, position = running_stand(db)
-    replacement = StandAsset(code='1B', current_status=StatusEnum.READY, current_location=LocationEnum.READY_AREA)
+    replacement = StandAsset(id=replacement_id, code='1B', current_status=StatusEnum.READY, current_location=LocationEnum.READY_AREA)
     db.add(replacement)
     db.commit()
     payload = SimpleNamespace(position_id=position.id, removed_stand_code='1A', installed_stand_code='1B',
@@ -106,3 +107,27 @@ def test_migration_moves_only_unstarted_and_preserves_audit():
         assert connection.execute(text('SELECT from_status, to_status FROM stand_preparation_events')).one() == ('YET_TO_READY', 'PENDING')
         with pytest.raises(IntegrityError):
             connection.execute(text("UPDATE stand_assets SET current_status='YET_TO_READY' WHERE id=1"))
+
+
+def test_failed_replacement_rolls_back_the_removal(db):
+    from sqlalchemy import event
+    old, position = running_stand(db)
+    replacement = StandAsset(id=0, code='1B', current_status=StatusEnum.READY, current_location=LocationEnum.READY_AREA)
+    db.add(replacement); db.commit()
+    payload = SimpleNamespace(position_id=position.id, removed_stand_code='1A', installed_stand_code='1B',
+        changed_at=None, changed_by='Operator', reason='Maintenance', leakage=False, vibration=False,
+        abnormal_sound=False, removed_condition=None, notes=None)
+    def fail_insert(*args):
+        raise IntegrityError('simulated insert conflict', {}, Exception('conflict'))
+    event.listen(StandInstallation, 'before_insert', fail_insert)
+    try:
+        with pytest.raises(HTTPException):
+            OperationService(db).change_stand(payload, None)
+    finally:
+        event.remove(StandInstallation, 'before_insert', fail_insert)
+    db.refresh(old); db.refresh(replacement)
+    assert old.current_status == StatusEnum.INSTALLED
+    assert old.current_position_id == position.id
+    assert replacement.current_status == StatusEnum.READY
+    assert replacement.current_position_id is None
+    assert db.query(StandInstallation).one().removed_at is None

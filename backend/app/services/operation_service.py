@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
@@ -126,7 +126,7 @@ class OperationService:
         now = datetime.utcnow()
         change_time = payload.changed_at or now
         if change_time.tzinfo is not None:
-            change_time = change_time.astimezone().replace(tzinfo=None)
+            change_time = change_time.astimezone(timezone.utc).replace(tzinfo=None)
         if change_time > now + timedelta(minutes=5):
             raise HTTPException(status_code=400, detail="Stand change time cannot be in the future.")
         if change_time < active.installed_at:
@@ -145,6 +145,14 @@ class OperationService:
         removed.vibration = payload.vibration
         removed.abnormal_sound = payload.abnormal_sound
         removed.condition_notes = payload.removed_condition or payload.notes
+
+        # Release both unique position claims before assigning the replacement.
+        # A flush stays inside this transaction; any later failure rolls it back.
+        try:
+            self.db.flush()
+        except IntegrityError as exc:
+            self.db.rollback()
+            raise HTTPException(status_code=409, detail="Stand removal conflicted with another update. Refresh and try again.") from exc
 
         self._clear_running_conditions(installed)
         installed.current_location = LocationEnum.WRM_LINE

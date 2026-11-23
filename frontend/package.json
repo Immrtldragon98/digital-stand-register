@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test:api": "node --test tests/api.test.cjs",
+    "test:api": "node --test tests/*.test.cjs",
     "test:proxy": "node tests/proxy.integration.cjs"
   },
   "dependencies": {

@@ -69,7 +69,9 @@ async function request(endpoint: string, options: RequestInit) {
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.detail || ([502, 503, 504].includes(response.status)
-      ? "The service is waking up or temporarily unavailable. Please retry shortly."
+      ? ((options.method || "GET").toUpperCase() === "GET"
+          ? "The service is waking up or temporarily unavailable. Please retry shortly."
+          : "Could not confirm whether the change was saved. Refresh current stands and check the running stand before trying again.")
       : `API request failed with status ${response.status}`));
   }
 
