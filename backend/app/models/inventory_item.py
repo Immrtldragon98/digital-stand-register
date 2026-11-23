@@ -11,7 +11,7 @@ class InventoryItem(Base):
     id = Column(Integer, primary_key=True, index=True)
     # Name is now the human-readable spare name only. Material/SAP codes are no longer used.
     name = Column(String(150), unique=True, nullable=False, index=True)
-    quantity = Column(Integer, nullable=False, default=0)
+    quantity = Column(Integer, nullable=True)
     minimum_quantity = Column(Integer, nullable=False, default=0)
     location = Column(String(150), nullable=False, default="Store")
     remarks = Column(Text, nullable=True)

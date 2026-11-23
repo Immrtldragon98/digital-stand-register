@@ -15,3 +15,4 @@ from app.models.reliability_history import HistoricalCampaign, HistoricalSpareUs
 from app.models.stand_component import StandComponentType, StandComponentPreparation, StandComponentPreparationItem
 from app.models.stand_event import StandCampaignEvent
 from app.models.pm_activity import PMActivity
+from app.models.spare_life_record import SpareLifeRecord

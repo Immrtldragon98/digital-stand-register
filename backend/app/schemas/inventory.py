@@ -4,13 +4,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class InventoryBase(BaseModel):
     name: str = Field(min_length=1, max_length=150)
-    quantity: int = Field(default=0, ge=0)
+    quantity: int | None = Field(default=None, ge=0)
     minimum_quantity: int = Field(default=0, ge=0)
     location: str = Field(default="Store", min_length=1, max_length=150)
     remarks: str | None = None
     expected_life_hours: float | None = Field(default=None, ge=0)
     observed_avg_life_hours: float | None = Field(default=None, ge=0)
-    reliability_pct: float | None = Field(default=None, ge=0, le=100)
+    reliability_pct: float | None = Field(default=None, ge=0)
     availability_pct: float | None = Field(default=None, ge=0, le=100)
     criticality: str = Field(default="MEDIUM", min_length=1, max_length=20)
     used_at: str | None = Field(default=None, max_length=150)
@@ -27,7 +27,7 @@ class InventoryUpdate(BaseModel):
     remarks: str | None = None
     expected_life_hours: float | None = Field(default=None, ge=0)
     observed_avg_life_hours: float | None = Field(default=None, ge=0)
-    reliability_pct: float | None = Field(default=None, ge=0, le=100)
+    reliability_pct: float | None = Field(default=None, ge=0)
     availability_pct: float | None = Field(default=None, ge=0, le=100)
     criticality: str | None = Field(default=None, min_length=1, max_length=20)
     used_at: str | None = Field(default=None, max_length=150)
@@ -46,6 +46,10 @@ class InventorySetQuantity(BaseModel):
 
 
 class InventoryOut(InventoryBase):
+    average_life_hours: float | None = None
+    life_sample_count: int = 0
+    life_record_count: int = 0
+    average_life_source: str = "UNKNOWN"
     id: int
     is_active: bool
     created_at: datetime
@@ -57,10 +61,16 @@ class InventoryTransactionOut(BaseModel):
     id: int
     item_id: int
     item_name: str
-    quantity_before: int
+    quantity_before: int | None
     quantity_change: int
     quantity_after: int
     operator: str
     reason: str
     transaction_type: str
     created_at: datetime
+
+
+class SpareLifeInput(BaseModel):
+    life_hours: float = Field(gt=0, allow_inf_nan=False)
+    quantity: int = Field(default=1, gt=0)
+    notes: str | None = Field(default=None, max_length=1000)

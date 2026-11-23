@@ -87,3 +87,18 @@ The API runs Alembic migrations before startup. Render generates its signing key
 After deployment, verify `/health`, the frontend `/operations` and `/intelligence`
 pages, and read API responses before commissioning plant data. Create the first
 admin through the existing first-setup flow before sharing the new instance.
+
+## Spare average life and current stock
+
+The Spares page opens to average life and current stock. Average life uses completed
+component-life records: `sum(life_hours × quantity) / sum(quantity)`. Each grouped
+entry must describe spares with the same measured completed life. Active stand age,
+carried reused life, procurement targets and consumption totals are not life samples.
+The UI shows sample count; an older manually supplied average is labelled as manual
+and used only when no completed samples exist. Life above the expected target is
+not capped at 100%.
+
+Stock is nullable: unknown is separate from a verified zero balance. Set an opening
+balance before issuing or receiving quantity adjustments. Every subsequent adjustment
+records its before/after quantities, operator and reason. Life records never alter
+stock. The workbook supplies catalog names only; receipts are not an opening balance.
