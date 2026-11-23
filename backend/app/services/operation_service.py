@@ -15,7 +15,6 @@ from app.models.stand_position import Position
 
 
 PREPARATION_FLOW = [
-    StatusEnum.YET_TO_READY,
     StatusEnum.PENDING,
     StatusEnum.GAUGING,
     StatusEnum.HYDROTEST,
@@ -165,7 +164,7 @@ class OperationService:
             raise HTTPException(status_code=400, detail="Running stand cannot be moved through preparation workflow.")
 
         current = stand.current_status
-        if current == StatusEnum.INP:
+        if current in {StatusEnum.INP, StatusEnum.YET_TO_READY}:
             current = StatusEnum.PENDING
             stand.current_status = StatusEnum.PENDING
         if current not in PREPARATION_FLOW:
@@ -174,7 +173,7 @@ class OperationService:
         current_index = PREPARATION_FLOW.index(current)
         target_index = PREPARATION_FLOW.index(status)
         is_next_step = target_index == current_index + 1
-        is_rework_reset = status == StatusEnum.PENDING and current != StatusEnum.YET_TO_READY
+        is_rework_reset = status == StatusEnum.PENDING
         if not (is_next_step or is_rework_reset):
             expected = PREPARATION_FLOW[current_index + 1].value if current_index < len(PREPARATION_FLOW) - 1 else "PENDING (for rework)"
             raise HTTPException(status_code=400, detail=f"Next allowed status: {expected}.")

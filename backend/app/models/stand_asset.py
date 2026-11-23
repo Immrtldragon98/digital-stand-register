@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, Column, Float, Integer, String, Enum, ForeignKey
+from sqlalchemy import CheckConstraint, Boolean, Column, Float, Integer, String, Enum, ForeignKey
 from sqlalchemy.orm import relationship
 
 from app.database.session import Base
@@ -7,6 +7,7 @@ from app.models.enums import LocationEnum, StatusEnum
 
 class StandAsset(Base):
     __tablename__ = "stand_assets"
+    __table_args__ = (CheckConstraint("current_status <> 'YET_TO_READY'", name="ck_stand_no_unstarted"),)
 
     id = Column(Integer, primary_key=True, index=True)
     code = Column(String(50), unique=True, index=True, nullable=False)
@@ -20,7 +21,7 @@ class StandAsset(Base):
     current_status = Column(
         Enum(StatusEnum),
         nullable=False,
-        default=StatusEnum.YET_TO_READY,
+        default=StatusEnum.PENDING,
     )
 
     current_position_id = Column(

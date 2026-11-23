@@ -6,7 +6,7 @@ Production-oriented stand-area management application for three finishing-mill l
 
 - 3 running lines: W1, W2, W3; 10 positions each.
 - A running stand exists only in one line position and cannot appear in Ready/Pending/WIP lists.
-- Spare workflow: `Yet to Ready -> Pending -> Gauging -> Hydrotest -> Ready -> Installed`.
+- Spare workflow: `Pending -> Gauging -> Hydrotest -> Ready -> Installed`.
 - A removed running stand automatically returns to `Pending`.
 - Stand life is tracked in running hours from installation/removal timestamps.
 - Entry guides are applicable only at positions 2, 4, 6, 8, and 10.

@@ -52,7 +52,7 @@ def get_or_create_stand(db, code: str) -> StandAsset:
         stand = StandAsset(
             code=code,
             current_location=LocationEnum.WIP,
-            current_status=StatusEnum.YET_TO_READY,
+            current_status=StatusEnum.PENDING,
             lifetime_hours=0.0,
         )
         db.add(stand)
@@ -91,7 +91,7 @@ def seed() -> None:
         for stand in db.query(StandAsset).filter(StandAsset.id.in_(known_ids)).all():
             stand.current_position_id = None
             stand.current_location = LocationEnum.WIP
-            stand.current_status = StatusEnum.YET_TO_READY
+            stand.current_status = StatusEnum.PENDING
 
         # Running arrangements from the report.
         for line_name, stand_codes in RUNNING_LINES.items():

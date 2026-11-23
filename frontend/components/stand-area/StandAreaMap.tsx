@@ -4,15 +4,14 @@ import { useMemo, useState } from "react";
 import StandDetails from "@/components/stand/StandDetails";
 import { fetchApi } from "@/lib/api";
 
-const STATUS_ORDER = ["READY", "HYDROTEST", "GAUGING", "PENDING", "YET_TO_READY"];
-const LABEL: Record<string,string> = { READY:"Ready", HYDROTEST:"Hydrotest", GAUGING:"Gauging", PENDING:"Pending", YET_TO_READY:"Yet to Ready" };
-const NEXT: Record<string,string|null> = { READY:null, HYDROTEST:"READY", GAUGING:"HYDROTEST", PENDING:"GAUGING", YET_TO_READY:"PENDING" };
+const STATUS_ORDER = ["READY", "HYDROTEST", "GAUGING", "PENDING"];
+const LABEL: Record<string,string> = { READY:"Ready", HYDROTEST:"Hydrotest", GAUGING:"Gauging", PENDING:"Pending" };
+const NEXT: Record<string,string|null> = { READY:null, HYDROTEST:"READY", GAUGING:"HYDROTEST", PENDING:"GAUGING" };
 const STYLE: Record<string,string> = {
   READY:"border-emerald-700/70 bg-emerald-950/20 text-emerald-300",
   HYDROTEST:"border-blue-700/70 bg-blue-950/20 text-blue-300",
   GAUGING:"border-violet-700/70 bg-violet-950/20 text-violet-300",
   PENDING:"border-orange-700/70 bg-orange-950/20 text-orange-300",
-  YET_TO_READY:"border-slate-700 bg-slate-900/40 text-slate-300",
 };
 
 type Props = { lines:any[]; stands:any[]; onRefresh:()=>Promise<void>|void };
@@ -56,7 +55,7 @@ export default function StandAreaMap({ stands, onRefresh }: Props) {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-white">Stand Preparation</h2>
-          <p className="text-xs text-slate-400">Yet to Ready → Pending → Gauging → Hydrotest → Ready</p>
+          <p className="text-xs text-slate-400">Pending → Gauging → Hydrotest → Ready</p>
         </div>
         <button onClick={()=>onRefresh()} className="text-xs px-3 py-2 rounded border border-slate-700 hover:border-blue-500">Refresh</button>
       </div>

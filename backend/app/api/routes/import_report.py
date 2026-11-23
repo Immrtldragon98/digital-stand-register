@@ -73,7 +73,7 @@ SCHEMA = {
 PROMPT = '''You are the Digital Stand Register report interpreter for a wire rod mill.
 Extract operations only; never invent missing facts.
 Vocabulary: WRM#1=W1, WRM#2=W2, WRM#3=W3. HT=HYDROTEST. Gauge/gauging=GAUGING.
-Stand workflow: YET_TO_READY -> PENDING -> GAUGING -> HYDROTEST -> READY -> RUNNING.
+Stand workflow: PENDING -> GAUGING -> HYDROTEST -> READY -> RUNNING.
 Only stands at positions 2,4,6,8,10 use entry guides.
 For a stand change extract old/new stand, line, position, people, reason, date/time/shift when present.
 For readiness reports create STAND_STATUS actions. If text says a test is pending, do NOT claim it is completed; add a warning if exact current stage is unclear.
@@ -179,7 +179,7 @@ def template_parse(text):
             "confidence": 0.95,
         })
 
-    for heading, status in [("READY", "READY"), ("HYDROTEST", "HYDROTEST"), ("GAUGING", "GAUGING"), ("PENDING", "PENDING"), ("YET TO READY", "YET_TO_READY")]:
+    for heading, status in [("READY", "READY"), ("HYDROTEST", "HYDROTEST"), ("GAUGING", "GAUGING"), ("PENDING", "PENDING"), ("YET TO READY", "PENDING")]:
         for code in _stand_list(text, heading):
             actions.append({"type": "STAND_STATUS", "stand": code.upper(), "status": status, "done_by": done_by, "confidence": 0.95})
 
@@ -271,7 +271,7 @@ def validate_action(db: Session, action: dict):
         if not stand:
             return "CONFLICT", f"Stand {code or '?'} does not exist in DSR."
         try:
-            target = StatusEnum(target_raw)
+            target = StatusEnum.PENDING if target_raw == "YET_TO_READY" else StatusEnum(target_raw)
         except ValueError:
             return "CONFLICT", f"Unknown status {target_raw or '?'} ."
         if stand.current_status == StatusEnum.INSTALLED or stand.current_position_id is not None:
@@ -279,12 +279,12 @@ def validate_action(db: Session, action: dict):
         current = stand.current_status
         if current == target:
             return "SAFE", f"{code} is already {target.value}; no change needed."
-        normalized_current = StatusEnum.PENDING if current == StatusEnum.INP else current
+        normalized_current = StatusEnum.PENDING if current in {StatusEnum.INP, StatusEnum.YET_TO_READY} else current
         if normalized_current not in PREPARATION_FLOW or target not in PREPARATION_FLOW:
             return "CONFLICT", f"{code} is not in the preparation workflow."
         ci = PREPARATION_FLOW.index(normalized_current)
         ti = PREPARATION_FLOW.index(target)
-        if ti == ci + 1 or (target == StatusEnum.PENDING and normalized_current != StatusEnum.YET_TO_READY):
+        if ti == ci + 1 or (target == StatusEnum.PENDING):
             if target in {StatusEnum.GAUGING, StatusEnum.HYDROTEST, StatusEnum.READY} and not (action.get("done_by") or "").strip():
                 return "REVIEW", f"{target.value} needs the name of the person who completed it."
             return "SAFE", f"{code}: {normalized_current.value} → {target.value}."
@@ -362,7 +362,8 @@ def confirm_report(payload: ConfirmInput, db: Session = Depends(get_db), user: U
         try:
             if action.get("type") == "STAND_STATUS":
                 stand = db.query(StandAsset).filter(StandAsset.code == (action.get("stand") or "").strip().upper()).first()
-                target = StatusEnum((action.get("status") or "").strip().upper())
+                target_raw = (action.get("status") or "").strip().upper()
+                target = StatusEnum.PENDING if target_raw == "YET_TO_READY" else StatusEnum(target_raw)
                 if stand and stand.current_status == target:
                     results.append({"action": action, "status": "NO_CHANGE", "message": f"{stand.code} already {target.value}."})
                     continue

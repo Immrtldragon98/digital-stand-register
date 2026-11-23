@@ -7,20 +7,19 @@ import ComponentPreparationModal from "@/components/stand/ComponentPreparationMo
 import { fetchApi } from "@/lib/api";
 import { AuthUser, canEdit, getUser, isAdmin } from "@/lib/auth";
 
-const ORDER=["READY","HYDROTEST","GAUGING","PENDING","YET_TO_READY"];
-const LABEL:Record<string,string>={READY:"Ready",HYDROTEST:"Hydrotest",GAUGING:"Gauging",PENDING:"Pending",YET_TO_READY:"Unstarted"};
+const ORDER=["READY","HYDROTEST","GAUGING","PENDING"];
+const LABEL:Record<string,string>={READY:"Ready",HYDROTEST:"Hydrotest",GAUGING:"Gauging",PENDING:"Pending"};
 const STYLE:Record<string,{row:string,label:string,card:string,button:string,dot:string}>={
   READY:{row:"border-slate-800 border-l-2 border-l-emerald-600 bg-[#101827]",label:"text-emerald-300",card:"border-slate-700 bg-[#0B111D] hover:bg-[#151F2E]",button:"border-slate-600 text-emerald-200 hover:bg-[#151F2E]",dot:"bg-emerald-400"},
   HYDROTEST:{row:"border-slate-800 border-l-2 border-l-blue-600 bg-[#101827]",label:"text-blue-300",card:"border-slate-700 bg-[#0B111D] hover:bg-[#151F2E]",button:"border-slate-600 text-blue-200 hover:bg-[#151F2E]",dot:"bg-blue-400"},
   GAUGING:{row:"border-slate-800 border-l-2 border-l-violet-600 bg-[#101827]",label:"text-violet-300",card:"border-slate-700 bg-[#0B111D] hover:bg-[#151F2E]",button:"border-slate-600 text-violet-200 hover:bg-[#151F2E]",dot:"bg-violet-400"},
   PENDING:{row:"border-slate-800 border-l-2 border-l-amber-600 bg-[#101827]",label:"text-amber-300",card:"border-slate-700 bg-[#0B111D] hover:bg-[#151F2E]",button:"border-slate-600 text-amber-200 hover:bg-[#151F2E]",dot:"bg-amber-400"},
-  YET_TO_READY:{row:"border-slate-800 border-l-2 border-l-slate-600 bg-[#101827]",label:"text-slate-300",card:"border-slate-700 bg-[#0B111D] hover:bg-[#151F2E]",button:"border-slate-600 text-slate-200 hover:bg-[#151F2E]",dot:"bg-slate-500"},
 };
-const NEXT:Record<string,string|undefined>={YET_TO_READY:"PENDING",GAUGING:"HYDROTEST",HYDROTEST:"READY"};
+const NEXT:Record<string,string|undefined>={GAUGING:"HYDROTEST",HYDROTEST:"READY"};
 type Stand={id:number;code:string;current_status:string;lifetime_hours:number};
 
 export default function StandAreaPage(){
-  const [stands,setStands]=useState<Stand[]>([]);const [loading,setLoading]=useState(true);const [error,setError]=useState("");const [saving,setSaving]=useState(false);const [selected,setSelected]=useState<any>(null);const [componentStand,setComponentStand]=useState<Stand|null>(null);const [user,setUser]=useState<AuthUser|null>(null);const [collapsed,setCollapsed]=useState<Record<string,boolean>>({HYDROTEST:true,GAUGING:true,YET_TO_READY:true});
+  const [stands,setStands]=useState<Stand[]>([]);const [loading,setLoading]=useState(true);const [error,setError]=useState("");const [saving,setSaving]=useState(false);const [selected,setSelected]=useState<any>(null);const [componentStand,setComponentStand]=useState<Stand|null>(null);const [user,setUser]=useState<AuthUser|null>(null);const [collapsed,setCollapsed]=useState<Record<string,boolean>>({HYDROTEST:true,GAUGING:true});
   const load=async()=>{try{setError("");setStands(await fetchApi("/stands/"));}catch(e){setError(e instanceof Error?e.message:"Could not load stands");}finally{setLoading(false)}};
   useEffect(()=>{setUser(getUser());load()},[]);
   const groups=useMemo(()=>Object.fromEntries(ORDER.map(s=>[s,stands.filter(x=>x.current_status===s).sort((a,b)=>a.code.localeCompare(b.code,undefined,{numeric:true}))])),[stands]);

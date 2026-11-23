@@ -96,7 +96,7 @@ def create_stand(payload: CreateStandSchema, db: Session = Depends(get_db), _: U
     stand = StandAsset(
         code=code,
         current_location=LocationEnum.WIP,
-        current_status=StatusEnum.YET_TO_READY,
+        current_status=StatusEnum.PENDING,
         lifetime_hours=payload.initial_life_hours,
         condition_notes=(payload.notes or "").strip() or None,
     )
