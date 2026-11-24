@@ -14,7 +14,9 @@ function walk(dir) {
     ? walk(path.join(dir, entry.name)) : [path.join(dir, entry.name)]);
 }
 const assets = walk('out').filter(file => /\.(html|txt|js|css|woff2?|webp|png|svg|ico)$/.test(file))
-  .map(file => '/' + file.slice(4).split(path.sep).join('/'));
+  .map(file => '/' + file.slice(4).split(path.sep).join('/'))
+  .filter(asset => asset !== '/404.html' && !asset.startsWith('/404/'))
+  .map(asset => asset.replace(/index\.html$/, ''));
 const version = fs.readFileSync('.next/BUILD_ID', 'utf8').trim();
 const template = fs.readFileSync('scripts/service-worker.js', 'utf8');
 fs.writeFileSync('out/sw.js', `const CACHE = ${JSON.stringify('dsr-shell-' + version)};\nconst ASSETS = ${JSON.stringify(assets)};\n${template}`);

@@ -5,7 +5,7 @@ const vm = require('node:vm');
 function worker() {
   const handlers = {}, matches = [];
   const self = {location: {origin:'https://app.test'}, addEventListener: (event, handler) => handlers[event] = handler};
-  vm.runInNewContext('const CACHE="dsr-shell-test"; const ASSETS=["/dashboard/index.html","/_next/static/app.js"];\n' + fs.readFileSync('scripts/service-worker.js','utf8'), {
+  vm.runInNewContext('const CACHE="dsr-shell-test"; const ASSETS=["/dashboard/","/_next/static/app.js"];\n' + fs.readFileSync('scripts/service-worker.js','utf8'), {
     self, URL, Response,
     fetch: async () => {throw Error('offline');},
     caches: {open: async () => ({match: async path => {matches.push(path); return new Response('saved shell');}})},
@@ -23,5 +23,5 @@ test('offline dashboard navigation restores only the precached public shell', as
   let result;
   handlers.fetch({request:{url:'https://app.test/dashboard/',method:'GET',mode:'navigate'},respondWith(value){result=value;}});
   assert.equal(await (await result).text(), 'saved shell');
-  assert.deepEqual(matches, ['/dashboard/index.html']);
+  assert.deepEqual(matches, ['/dashboard/']);
 });

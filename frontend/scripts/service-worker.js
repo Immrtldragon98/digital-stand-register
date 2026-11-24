@@ -13,8 +13,8 @@ self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
   let asset = url.pathname;
   if (event.request.mode === 'navigate') {
-    asset = asset.endsWith('/') ? asset + 'index.html' : asset;
-    if (!allowed.has(asset)) asset = url.pathname.replace(/\/$/, '') + '/index.html';
+    asset = asset.replace(/index\.html$/, '');
+    if (!allowed.has(asset)) asset = asset.replace(/\/$/, '') + '/';
   }
   if (!allowed.has(asset)) return;
   event.respondWith(fetch(event.request).catch(async () => {
