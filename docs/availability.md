@@ -1,6 +1,10 @@
 # Availability and offline dashboard
 
-The preferred frontend is a Render Static Site built with:
+The preferred frontend is https://digital-stand-register-app.onrender.com/dashboard/
+(Render Static Site `srv-dc2k5qui0phs73b3stn0`, auto-deploying `main`).
+The original Node website is retained for existing bookmarks.
+
+The static site is built with:
 
     cd frontend && npm ci --include=dev && npm run test:api && npm run build:static
 

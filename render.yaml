@@ -16,7 +16,7 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: CORS_ORIGINS
-        value: ""
+        value: "https://digital-stand-register-app.onrender.com"
   - type: web
     name: digital-stand-register-web
     runtime: node
