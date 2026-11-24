@@ -18,7 +18,7 @@ export default function LineStatusGrid({lines}:{lines:any[]}){
       {lines.map(line=>{const tone=lineTone;return <section key={line.id} className="mechanical-panel overflow-hidden">
         <div className={`flex items-center justify-between px-4 py-3 border-b border-[#26354a] ${tone.header}`}>
           <div className="flex items-center gap-2"><span className={`h-8 w-1 rounded-full ${tone.bar}`}/><div><div className={`text-base font-bold ${tone.badge}`}>{line.name}</div><div className="text-xs text-slate-300">Running line</div></div></div>
-          <span className="rounded-full border border-slate-700/70 bg-slate-950/30 px-2.5 py-1 text-[10px] font-semibold text-slate-300">10 positions</span>
+          <span className="rounded-full border border-slate-700/70 bg-slate-950/30 px-2.5 py-1 text-[10px] font-semibold text-slate-300">{line.positions?.length || 0} positions</span>
         </div>
         <div className="flex gap-2 overflow-x-auto p-2 md:grid md:grid-cols-10 md:gap-px md:bg-[#243247] md:p-px">
           {line.positions?.map((p:any)=>{const s=p.current_stand;const life=s?.life_percent;const attention=!!(s?.leakage||s?.vibration||s?.abnormal_sound);return <button key={p.id} disabled={!s} onClick={()=>open(s)} title={s?`${line.name} P${p.position_number} · ${s.code}`:`${line.name} P${p.position_number}`} className={`min-w-[118px] md:min-w-0 text-left p-2.5 bg-[#101827] hover:bg-[#151F2E] disabled:opacity-40 transition-colors ${attention?"ring-1 ring-inset ring-rose-500/60":""}`}>

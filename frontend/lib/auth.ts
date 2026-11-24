@@ -10,7 +10,7 @@ const USER_KEY = "dsr_user";
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return window.localStorage.getItem(TOKEN_KEY);
+  try { return window.localStorage.getItem(TOKEN_KEY); } catch { return null; }
 }
 
 export function getUser(): AuthUser | null {

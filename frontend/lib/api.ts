@@ -28,33 +28,49 @@ async function request(endpoint: string, options: RequestInit) {
   else options.signal?.addEventListener("abort", onAbort, { once: true });
   const timeout = (options.method || "GET").toUpperCase() === "GET"
     ? setTimeout(() => controller.abort(), 60_000) : undefined;
-  let response: Response;
+  const read = (options.method || "GET").toUpperCase() === "GET";
   try {
-    const read = (options.method || "GET").toUpperCase() === "GET";
     for (let attempt = 0; ; attempt++) {
-    response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      signal: controller.signal,
-      headers: {
-        ...(isFormData ? {} : { "Content-Type": "application/json" }),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...options.headers,
-      },
-      cache: "no-store",
-    });
-    // Render can return gateway errors while a sleeping API wakes up.
-    // Retry only reads, within the original overall timeout.
-    if (!read || ![502, 503, 504].includes(response.status) || attempt >= 3) break;
-    await response.body?.cancel();
-    await new Promise<void>((resolve, reject) => {
-      const abort = () => { clearTimeout(delay); reject(new Error("aborted")); };
-      const delay = setTimeout(() => {
-        controller.signal.removeEventListener("abort", abort);
-        resolve();
-      }, 2000);
-      if (controller.signal.aborted) abort();
-      else controller.signal.addEventListener("abort", abort, { once: true });
-    });
+      let response: Response | undefined;
+      try {
+        response = await fetch(`${API_BASE_URL}${endpoint}`, {
+          ...options, signal: controller.signal,
+          headers: {
+            ...(isFormData ? {} : { "Content-Type": "application/json" }),
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            ...options.headers,
+          }, cache: "no-store",
+        });
+      } catch (error) {
+        if (!read || controller.signal.aborted || attempt >= 3) throw error;
+      }
+      const html = response?.headers.get("content-type")?.includes("text/html");
+      const unavailable = !response || html || [502, 503, 504].includes(response.status);
+      if (read && unavailable && attempt < 3) {
+        await response?.body?.cancel();
+        await new Promise<void>((resolve, reject) => {
+          const abort = () => { clearTimeout(delay); reject(new Error("aborted")); };
+          const delay = setTimeout(() => {
+            controller.signal.removeEventListener("abort", abort);
+            resolve();
+          }, 2000);
+          if (controller.signal.aborted) abort();
+          else controller.signal.addEventListener("abort", abort, { once: true });
+        });
+        continue;
+      }
+      if (!response) throw new Error("Cannot connect to the server. Check your connection; automatic reconnection will continue.");
+      if (html || !response.ok) {
+        const errorData = html ? {} : await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || (unavailable
+          ? (read ? "The server is starting or unavailable. Reconnecting automatically."
+            : "Could not confirm whether the change was saved. Refresh current stands and check the running stand before trying again.")
+          : `API request failed with status ${response.status}`));
+      }
+      const contentType = response.headers.get("content-type") || "";
+      if (!contentType.includes("application/json")) return response;
+      // Keep the deadline active while reading the body, too.
+      return await response.json();
     }
   } catch (error) {
     if (controller.signal.aborted && !options.signal?.aborted) {
@@ -65,19 +81,6 @@ async function request(endpoint: string, options: RequestInit) {
     if (timeout !== undefined) clearTimeout(timeout);
     options.signal?.removeEventListener("abort", onAbort);
   }
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || ([502, 503, 504].includes(response.status)
-      ? ((options.method || "GET").toUpperCase() === "GET"
-          ? "The service is waking up or temporarily unavailable. Please retry shortly."
-          : "Could not confirm whether the change was saved. Refresh current stands and check the running stand before trying again.")
-      : `API request failed with status ${response.status}`));
-  }
-
-  const contentType = response.headers.get("content-type") || "";
-  if (!contentType.includes("application/json")) return response;
-  return response.json();
 }
 
 export async function fetchApi(endpoint: string, options: RequestInit = {}) {

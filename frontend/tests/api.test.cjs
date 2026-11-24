@@ -95,3 +95,41 @@ test('failed writes are not automatically retried', async () => {
   assert.equal(calls, 3);
   assert.equal(api.timers.size, 0);
 });
+
+async function nextRetry(api) {
+  await new Promise(resolve => setImmediate(resolve));
+  const entry = [...api.timers.entries()].find(([,timer]) => timer.delay === 2000);
+  assert.ok(entry, 'expected a bounded read retry');
+  api.timers.delete(entry[0]); entry[1].callback();
+}
+test('HTML 200 wake-up page is retried rather than returned as dashboard data', async () => {
+  let calls = 0;
+  const api = client(async () => ++calls === 1
+    ? new Response('<html>starting</html>', {headers: {'content-type':'text/html'}}) : json([{id:1}]));
+  const result = api.fetchApi('/dashboard/');
+  await nextRetry(api);
+  assert.equal((await result)[0].id, 1);
+  assert.equal(calls, 2);
+});
+test('transient network failure recovers without caching the failure', async () => {
+  let calls = 0;
+  const api = client(async () => {if (++calls === 1) throw new TypeError('Failed to fetch'); return json({ok:true});});
+  const result = api.fetchApi('/dashboard/');
+  await nextRetry(api);
+  assert.equal((await result).ok, true);
+});
+test('HTML responses to writes fail once and request verification', async () => {
+  let calls = 0;
+  const api = client(async () => {calls++; return new Response('<html>starting</html>', {headers:{'content-type':'text/html'}});});
+  await assert.rejects(api.fetchApi('/operations/stands/change', {method:'POST',body:'{}'}), /confirm whether the change was saved/);
+  assert.equal(calls, 1);
+});
+test('authorization failures are not retried and binary downloads remain supported', async () => {
+  let calls = 0;
+  const api = client(async url => {calls++; return url.endsWith('.xlsx')
+    ? new Response('spreadsheet', {headers:{'content-type':'application/octet-stream'}})
+    : new Response('{"detail":"Sign in"}', {status:401,headers:{'content-type':'application/json'}});});
+  await assert.rejects(api.fetchApi('/private'), /Sign in/);
+  assert.equal(calls, 1);
+  assert.equal(await (await api.fetchApi('/report.xlsx')).text(), 'spreadsheet');
+});
