@@ -7,6 +7,7 @@ from app.config.settings import settings
 engine = create_engine(
     settings.DATABASE_URL,
     pool_pre_ping=True,
+    connect_args={"connect_timeout":10} if settings.DATABASE_URL.startswith(("postgresql", "postgres")) else {},
     pool_size=5,
     max_overflow=5,
     pool_recycle=900,

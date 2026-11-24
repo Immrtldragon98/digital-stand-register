@@ -1,6 +1,11 @@
 import json, os, urllib.request, urllib.parse
 from datetime import date, datetime
-from fastapi import APIRouter, Depends, HTTPException
+from zoneinfo import ZoneInfo
+from fastapi import APIRouter, Depends, HTTPException, Header
+from typing import Annotated
+from pydantic import ValidationError
+from app.auth.dependencies import ADMIN_ROLE_ID
+from app.services.command_service import run_command
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from app.auth.dependencies import require_operator, require_admin
@@ -32,14 +37,16 @@ class PMInput(BaseModel):
     completed_date: date|None=None
     remarks: str|None=None
     source_text: str|None=None
-class MessageInput(BaseModel): text:str
-class ConfirmInput(BaseModel): activities:list[dict]; source_text:str|None=None
+class MessageInput(BaseModel): text:str=Field(min_length=1,max_length=20000)
+class ConfirmInput(BaseModel): activities:list[dict]=Field(min_length=1,max_length=100); source_text:str|None=Field(default=None,max_length=20000)
 
 FIELDS=["id","planned_date","line_name","shift","position_number","stand_code","equipment","component","activity_type","activity","from_value","to_value","assigned_to","status","completed_date","remarks","source_text","created_by","updated_by","created_at","updated_at"]
 def out(x): return {c:getattr(x,c) for c in FIELDS}
 def apply(x,p,user):
     s=p.status.strip().upper()
     if s not in STATUSES: raise HTTPException(400,"Invalid status")
+    if p.activity_type.strip().upper() not in TYPES: raise HTTPException(400,"Invalid activity type")
+    if not p.equipment.strip() or not p.activity.strip(): raise HTTPException(400,"Equipment and activity are required")
     x.planned_date=p.planned_date;x.line_name=(p.line_name or "").strip().upper() or None;x.shift=(p.shift or "").strip().upper() or None;x.position_number=p.position_number;x.stand_code=(p.stand_code or "").strip().upper() or None;x.equipment=p.equipment.strip();x.component=(p.component or "").strip() or None;x.activity_type=(p.activity_type or "OTHER").strip().upper();x.activity=p.activity.strip();x.from_value=(p.from_value or "").strip() or None;x.to_value=(p.to_value or "").strip() or None;x.assigned_to=(p.assigned_to or "").strip() or None;x.status=s;x.completed_date=p.completed_date or (p.planned_date if s=="COMPLETED" else None);x.remarks=(p.remarks or "").strip() or None;x.source_text=p.source_text;x.updated_by=user.username;x.updated_at=datetime.utcnow()
 
 @router.get("/")
@@ -49,12 +56,13 @@ def list_pm(start:date|None=None,end:date|None=None,line:str|None=None,status:st
     if end:q=q.filter(PMActivity.planned_date<=end)
     if line:q=q.filter(PMActivity.line_name==line.upper())
     if status:q=q.filter(PMActivity.status==status.upper())
-    return [out(x) for x in q.order_by(PMActivity.planned_date.desc(),PMActivity.id.desc()).all()]
+    return [out(x) for x in q.order_by(PMActivity.planned_date.desc(),PMActivity.id.desc()).limit(2000).all()]
 @router.post("/")
 def create_pm(p:PMInput,db:Session=Depends(get_db),user:User=Depends(require_operator)):
+    _check_backdate(p,user)
     x=PMActivity(created_by=user.username,updated_by=user.username,created_at=datetime.utcnow(),updated_at=datetime.utcnow());apply(x,p,user);db.add(x);db.commit();db.refresh(x);return out(x)
 @router.put("/{pm_id}")
-def update_pm(pm_id:int,p:PMInput,db:Session=Depends(get_db),user:User=Depends(require_operator)):
+def update_pm(pm_id:int,p:PMInput,db:Session=Depends(get_db),user:User=Depends(require_admin)):
     x=db.get(PMActivity,pm_id)
     if not x:raise HTTPException(404,"Activity not found")
     apply(x,p,user);db.commit();db.refresh(x);return out(x)
@@ -70,10 +78,10 @@ One physical maintenance action = one row. Preserve stand IDs and component name
 
 def fallback(text):
     import re
-    today=date.today().isoformat(); dm=re.search(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b",text)
+    dm=re.search(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b",text)
     if dm:
         y=int(dm.group(3));y=y+2000 if y<100 else y; day=f"{y:04d}-{int(dm.group(2)):02d}-{int(dm.group(1)):02d}"
-    else: day=today
+    else: day=None
     lm=re.search(r"\bW(?:RM)?\s*#?\s*([123])\b",text,re.I);line="W"+lm.group(1) if lm else None
     sm=re.search(r"\b([ABCG])\s*shift\b",text,re.I);shift=sm.group(1).upper() if sm else None
     acts=[]
@@ -91,7 +99,7 @@ def ai_parse(text):
     body={"contents":[{"parts":[{"text":PROMPT+text}]}],"generationConfig":{"temperature":0.1,"responseMimeType":"application/json"}}
     req=urllib.request.Request(f"https://generativelanguage.googleapis.com/v1beta/models/{urllib.parse.quote(model,safe='')}:generateContent",data=json.dumps(body).encode(),headers={"Content-Type":"application/json","x-goog-api-key":key},method="POST")
     try:
-        with urllib.request.urlopen(req,timeout=20) as r: raw=json.loads(r.read().decode())
+        with urllib.request.urlopen(req,timeout=20) as r: raw=json.loads(r.read(2_000_001).decode())
         parsed=json.loads(raw["candidates"][0]["content"]["parts"][0]["text"]);return parsed.get("activities",[]),model
     except Exception:return fallback(text),"template-parser"
 
@@ -99,39 +107,38 @@ def ai_parse(text):
 def analyse_message(p:MessageInput,user:User=Depends(require_operator)):
     acts,provider=ai_parse(p.text.strip())
     rows=[]
-    for i,a in enumerate(acts):
+    if not isinstance(acts,list): raise HTTPException(502,"AI returned an invalid activity list")
+    for i,a in enumerate(acts[:100]):
+        if not isinstance(a,dict): continue
         missing=[] 
         if not a.get("planned_date"):missing.append("date")
         if not a.get("equipment"):missing.append("equipment")
-        state="READY" if float(a.get("confidence") or 0)>=.75 and not missing else "REVIEW"
+        try: confidence=float(a.get("confidence") or 0)
+        except (ValueError,TypeError): confidence=0
+        state="READY" if 0.75<=confidence<=1 and not missing else "REVIEW"
         rows.append({"index":i,"state":state,"missing":missing,"activity":a})
     return {"provider":provider,"activities":rows,"message":"Preview only. Review before saving."}
 
+def _check_backdate(payload, user):
+    today=datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    if user.role_id != ADMIN_ROLE_ID and (payload.planned_date < today or (payload.completed_date and payload.completed_date < today)):
+        raise HTTPException(403, "Only an admin can enter backdated maintenance records.")
+
+
 @router.post("/confirm-message")
-def confirm_message(p:ConfirmInput,db:Session=Depends(get_db),user:User=Depends(require_operator)):
-    saved=[]
-    for a in p.activities:
-        try: payload=PMInput(**{**a,"source_text":p.source_text,"status":a.get("status","COMPLETED")})
-        except Exception as e: saved.append({"status":"SKIPPED","message":str(e),"activity":a});continue
-        x=PMActivity(created_by=user.username,updated_by=user.username,created_at=datetime.utcnow(),updated_at=datetime.utcnow());apply(x,payload,user);db.add(x);saved.append({"status":"SAVED","activity":a})
-    db.commit()
-    # Only execute an existing DSR operation when the reviewed row has every mandatory fact.
-    # The LLM never bypasses OperationService validation.
-    performed=[]
-    service=OperationService(db)
-    for a in p.activities:
-        if (a.get("activity_type") or "").upper()!="STAND_CHANGE": continue
-        required=[a.get("line_name"),a.get("position_number"),a.get("from_value"),a.get("to_value"),a.get("assigned_to"),a.get("remarks")]
-        if not all(required):
-            performed.append({"status":"REVIEW_ONLY","activity":a,"message":"Stored in maintenance history. Stand change not executed because line, position, old/new stand, changed-by or reason is missing."});continue
-        line=db.query(Line).filter(Line.name==str(a["line_name"]).upper()).first()
-        pos=db.query(Position).filter(Position.line_id==line.id,Position.position_number==int(a["position_number"])).first() if line else None
-        if not pos:
-            performed.append({"status":"NOT_PERFORMED","activity":a,"message":"Line/position not found."});continue
-        try:
-            when=datetime.combine(date.fromisoformat(a["planned_date"]),datetime.min.time())
-            result=service.change_stand(ChangeStandSchema(position_id=pos.id,removed_stand_code=str(a["from_value"]).upper(),installed_stand_code=str(a["to_value"]).upper(),changed_by=str(a["assigned_to"]),reason=str(a["remarks"]),changed_at=when,notes="Confirmed from PM Activities message import"),user.id)
-            performed.append({"status":"PERFORMED","activity":a,"result":result})
-        except Exception as exc:
-            db.rollback();performed.append({"status":"NOT_PERFORMED","activity":a,"message":getattr(exc,"detail",str(exc))})
-    return {"saved":sum(1 for x in saved if x["status"]=="SAVED"),"results":saved,"operations":performed,"confirmed_by":user.username}
+def confirm_message(p:ConfirmInput,db:Session=Depends(get_db),user:User=Depends(require_operator), idempotency_key: Annotated[str|None, Header()] = None):
+    def save():
+        rows=[]
+        for item in p.activities:
+            try:
+                payload=PMInput(**{**item,"source_text":p.source_text,"status":item.get("status","COMPLETED")})
+            except ValidationError:
+                raise HTTPException(400,"Every selected activity needs a valid date, equipment and activity. No rows were saved.")
+            _check_backdate(payload,user)
+            row=PMActivity(created_by=user.username,updated_by=user.username,created_at=datetime.utcnow(),updated_at=datetime.utcnow())
+            apply(row,payload,user)
+            rows.append(row)
+        db.add_all(rows)
+        db.flush()
+        return {"saved":len(rows),"results":[{"status":"SAVED","id":row.id} for row in rows],"operations":[],"confirmed_by":user.username,"message":"Maintenance history saved only. No stand or stock operation was executed."}
+    return run_command(db,user.id,idempotency_key,'PM_IMPORT',p.model_dump(),save)

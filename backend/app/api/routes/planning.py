@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import require_operator
+from app.auth.dependencies import require_admin
 from app.database.session import get_db
 from app.models.enums import StatusEnum
 from app.models.line import Line
@@ -15,6 +15,7 @@ from app.models.stand_asset import StandAsset
 from app.models.stand_installation import StandInstallation
 from app.models.stand_position import Position
 from app.models.user import User
+from app.services.runtime_service import RuntimeService
 
 router = APIRouter()
 
@@ -45,13 +46,14 @@ def planning_summary(db: Session = Depends(get_db)):
 
     history = db.query(HistoricalCampaign).filter(HistoricalCampaign.life_days.isnot(None)).all()
     now = datetime.now(timezone.utc).replace(tzinfo=None)
+    runtime = RuntimeService(db)
     result = []
     for position, line in positions:
         inst = active.get(position.id)
         stand = stands.get(inst.stand_id) if inst else None
         current_hours = None
         if inst:
-            current_hours = max(0.0, (now - inst.installed_at).total_seconds() / 3600.0)
+            current_hours = runtime.installation(inst, now)["hours"]
         hist = [h.life_days for h in history if h.line_name == line.name and h.position_number == position.position_number and h.life_days is not None and h.life_days >= 0]
         hist_avg_days = round(mean(hist), 2) if hist else None
         target = position.target_life_hours
@@ -76,6 +78,9 @@ def planning_summary(db: Session = Depends(get_db)):
             "target_life_hours": target,
             "life_percent": life_pct,
             "historical_avg_days": hist_avg_days,
+            "historical_basis": "INFERRED_ELAPSED_DAYS_NOT_MEASURED_RUNTIME",
+            "runtime_complete": runtime.installation(inst, now)["complete"] if inst else False,
+            "known_runtime_hours": runtime.installation(inst, now)["known_hours"] if inst else 0,
             "historical_campaigns": len(hist),
             "ready_count": ready_counts[position.position_number],
             "risk": risk,
@@ -84,7 +89,7 @@ def planning_summary(db: Session = Depends(get_db)):
 
 
 @router.patch("/positions/{position_id}/target")
-def update_target(position_id: int, payload: TargetLifeUpdate, db: Session = Depends(get_db), _: User = Depends(require_operator)):
+def update_target(position_id: int, payload: TargetLifeUpdate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     position = db.get(Position, position_id)
     if not position:
         raise HTTPException(404, "Position not found")

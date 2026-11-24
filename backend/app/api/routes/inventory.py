@@ -126,7 +126,7 @@ def list_transactions(item_id: int | None = None, limit: int = 200, db: Session 
 
 
 @router.post("/", response_model=InventoryOut, status_code=status.HTTP_201_CREATED)
-def create_inventory(payload: InventoryCreate, db: Session = Depends(get_db), user: User = Depends(require_operator)):
+def create_inventory(payload: InventoryCreate, db: Session = Depends(get_db), user: User = Depends(require_admin)):
     data = payload.model_dump()
     data["availability_pct"] = None
     data["reliability_pct"] = None
@@ -149,7 +149,7 @@ def create_inventory(payload: InventoryCreate, db: Session = Depends(get_db), us
 
 
 @router.patch("/{item_id}", response_model=InventoryOut)
-def update_inventory(item_id: int, payload: InventoryUpdate, db: Session = Depends(get_db), _: User = Depends(require_operator)):
+def update_inventory(item_id: int, payload: InventoryUpdate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     item = _get_item(db, item_id)
     if not item.is_active:
         raise HTTPException(409, "Archived inventory items cannot be edited")
@@ -199,7 +199,7 @@ def change_quantity(item_id: int, payload: InventoryQuantityChange, db: Session 
 
 
 @router.post("/{item_id}/set-quantity", response_model=InventoryOut)
-def set_quantity(item_id: int, payload: InventorySetQuantity, db: Session = Depends(get_db), user: User = Depends(require_operator)):
+def set_quantity(item_id: int, payload: InventorySetQuantity, db: Session = Depends(get_db), user: User = Depends(require_admin)):
     item = _get_item(db, item_id)
     if not item.is_active:
         raise HTTPException(409, "Archived inventory items cannot be adjusted")

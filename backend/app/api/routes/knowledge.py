@@ -2,13 +2,17 @@ import csv
 import hashlib
 import io
 import re
+import zipfile
 from pathlib import Path
 
 from docx import Document as DocxDocument
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from openpyxl import load_workbook
 from pypdf import PdfReader
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func, or_
+from fastapi import Query
+from starlette.concurrency import run_in_threadpool
 
 from app.auth.dependencies import require_admin, require_operator
 from app.database.session import get_db
@@ -20,6 +24,18 @@ router = APIRouter()
 ALLOWED_CATEGORIES = {"ROD_QUALITY", "EMULSION", "SPARE_USAGE", "FMEA_RCA", "SHIFT_REPORT", "OTHER"}
 ALLOWED_SUFFIXES = {".txt", ".md", ".csv", ".xlsx", ".pdf", ".docx"}
 MAX_BYTES = 12 * 1024 * 1024
+MAX_TEXT = 2_000_000
+MAX_ROWS = 100_000
+MAX_EXPANDED = 40 * 1024 * 1024
+
+
+def _bounded_join(parts):
+    result=[]; total=0
+    for count,part in enumerate(parts,1):
+        total+=len(part)
+        if count>MAX_ROWS or total>MAX_TEXT: raise HTTPException(413,'Document exceeds text processing limits')
+        result.append(part)
+    return '\n'.join(result)
 
 
 def _extract_text(filename: str, data: bytes) -> str:
@@ -27,32 +43,45 @@ def _extract_text(filename: str, data: bytes) -> str:
     if suffix not in ALLOWED_SUFFIXES:
         raise HTTPException(400, f"Unsupported file type {suffix}. Use TXT, MD, CSV, XLSX, PDF or DOCX.")
 
+    if suffix in {".xlsx", ".docx"}:
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            files=archive.infolist()
+            if len(files)>5000 or sum(x.file_size for x in files)>MAX_EXPANDED:
+                raise HTTPException(413,"Document archive expands beyond processing limits")
     if suffix in {".txt", ".md"}:
-        return data.decode("utf-8", errors="ignore")
+        text=data.decode("utf-8", errors="ignore")
+        if len(text)>MAX_TEXT: raise HTTPException(413,"Document text exceeds processing limit")
+        return text
 
     if suffix == ".csv":
         text = data.decode("utf-8", errors="ignore")
         rows = csv.reader(io.StringIO(text))
-        return "\n".join(" | ".join(cell.strip() for cell in row) for row in rows)
+        return _bounded_join(" | ".join(cell.strip() for cell in row) for row in rows)
 
     if suffix == ".xlsx":
         wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-        lines = []
+        lines = []; total=0; count=0
         for ws in wb.worksheets:
             lines.append(f"SHEET: {ws.title}")
             for row in ws.iter_rows(values_only=True):
+                count+=1
+                if count>MAX_ROWS: raise HTTPException(413,"Spreadsheet row limit exceeded")
                 values = [str(v).strip() if v is not None else "" for v in row]
                 if any(values):
-                    lines.append(" | ".join(values))
+                    line=" | ".join(values); total+=len(line)
+                    if total>MAX_TEXT: raise HTTPException(413,"Document text exceeds processing limit")
+                    lines.append(line)
+        wb.close()
         return "\n".join(lines)
 
     if suffix == ".pdf":
         reader = PdfReader(io.BytesIO(data))
-        return "\n".join((page.extract_text() or "") for page in reader.pages)
+        if len(reader.pages)>400: raise HTTPException(413,"PDF page limit exceeded")
+        return _bounded_join((page.extract_text() or "") for page in reader.pages)
 
     if suffix == ".docx":
         doc = DocxDocument(io.BytesIO(data))
-        return "\n".join(p.text for p in doc.paragraphs)
+        return _bounded_join(p.text for p in doc.paragraphs)
 
     return ""
 
@@ -75,8 +104,8 @@ def _chunks(text: str, size: int = 1600, overlap: int = 250):
 
 @router.get("/")
 def list_documents(db: Session = Depends(get_db)):
-    docs = db.query(KnowledgeDocument).order_by(KnowledgeDocument.created_at.desc()).all()
-    return [{"id": d.id, "filename": d.filename, "category": d.category, "uploaded_by": d.uploaded_by, "created_at": d.created_at, "chunks": len(d.chunks)} for d in docs]
+    docs = db.query(KnowledgeDocument,func.count(KnowledgeChunk.id)).outerjoin(KnowledgeChunk).group_by(KnowledgeDocument.id).order_by(KnowledgeDocument.created_at.desc()).limit(1000).all()
+    return [{"id": d.id, "filename": d.filename, "category": d.category, "uploaded_by": d.uploaded_by, "created_at": d.created_at, "chunks": count} for d,count in docs]
 
 
 @router.post("/upload", status_code=201)
@@ -89,23 +118,27 @@ async def upload_document(
     category = category.strip().upper()
     if category not in ALLOWED_CATEGORIES:
         raise HTTPException(400, "Unknown document category")
-    data = await file.read()
+    data = await file.read(MAX_BYTES + 1)
     if not data:
         raise HTTPException(400, "File is empty")
     if len(data) > MAX_BYTES:
         raise HTTPException(413, "File is larger than 12 MB")
 
+    return await run_in_threadpool(_index_document, category, file.filename or 'document.txt', data, db, user.username)
+
+
+def _index_document(category, filename, data, db, username):
     digest = hashlib.sha256(data).hexdigest()
     existing = db.query(KnowledgeDocument).filter(KnowledgeDocument.content_hash == digest).first()
     if existing:
         raise HTTPException(409, f"This document is already imported as {existing.filename}")
 
-    text = _extract_text(file.filename or "document.txt", data)
+    text = _extract_text(filename, data)
     chunks = _chunks(text)
     if not chunks:
         raise HTTPException(400, "No readable text was found in the document")
 
-    doc = KnowledgeDocument(filename=file.filename or "document", category=category, content_hash=digest, uploaded_by=user.username)
+    doc = KnowledgeDocument(filename=filename, category=category, content_hash=digest, uploaded_by=username)
     db.add(doc)
     db.flush()
     for idx, content in enumerate(chunks):
@@ -116,11 +149,11 @@ async def upload_document(
 
 
 @router.get("/search")
-def search_knowledge(q: str, limit: int = 8, db: Session = Depends(get_db), _: User = Depends(require_operator)):
-    terms = [t.lower() for t in re.findall(r"[A-Za-z0-9_.-]+", q) if len(t) > 2]
+def search_knowledge(q: str = Query(...,min_length=1,max_length=1000), limit: int = 8, db: Session = Depends(get_db), _: User = Depends(require_operator)):
+    terms = [t.lower() for t in re.findall(r"[A-Za-z0-9_.-]+", q) if len(t) > 2][:16]
     if not terms:
         return []
-    chunks = db.query(KnowledgeChunk).join(KnowledgeDocument).all()
+    chunks = db.query(KnowledgeChunk).options(joinedload(KnowledgeChunk.document)).filter(or_(*[KnowledgeChunk.content.ilike(f"%{term}%") for term in terms])).order_by(KnowledgeChunk.id.desc()).limit(2000).all()
     ranked = []
     for chunk in chunks:
         lower = chunk.content.lower()

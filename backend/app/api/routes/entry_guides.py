@@ -7,6 +7,8 @@ from app.database.session import get_db
 from app.models.entry_guide_asset import EntryGuideAsset
 from app.models.enums import EntryGuideConditionEnum, LocationEnum, StatusEnum
 from app.models.user import User
+from app.models.entry_guide_installation import EntryGuideInstallation
+from app.services.runtime_service import RuntimeService
 from app.services.entry_guide_service import EntryGuideService
 from app.schemas.entry_guide import InstallEntryGuideSchema, RemoveEntryGuideSchema, UpdateEntryGuideConditionSchema
 
@@ -27,10 +29,14 @@ class ReadyEntryGuideSchema(BaseModel):
 @router.get("/")
 def list_guides(db: Session = Depends(get_db)):
     guides = db.query(EntryGuideAsset).order_by(EntryGuideAsset.code).all()
+    runtime = RuntimeService(db)
+    history = {}
+    for inst in db.query(EntryGuideInstallation).all():
+        history.setdefault(inst.guide_id, []).append(inst)
     return [{
         "id": g.id, "code": g.code, "condition": g.condition,
         "current_status": g.current_status, "current_location": g.current_location,
-        "current_position_id": g.current_position_id, "lifetime_hours": g.lifetime_hours,
+        "current_position_id": g.current_position_id, **runtime.stand_runtime(g, history.get(g.id, [])),
         "condition_notes": g.condition_notes,
     } for g in guides]
 

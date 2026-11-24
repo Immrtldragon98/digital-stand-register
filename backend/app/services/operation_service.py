@@ -12,6 +12,9 @@ from app.models.stand_component import StandComponentPreparation
 from app.models.stand_installation import StandInstallation
 from app.models.stand_preparation_event import StandPreparationEvent
 from app.models.stand_position import Position
+from app.models.user import User
+from app.auth.dependencies import ADMIN_ROLE_ID
+from app.services.runtime_service import RuntimeService
 
 
 PREPARATION_FLOW = [
@@ -23,8 +26,9 @@ PREPARATION_FLOW = [
 
 
 class OperationService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, auto_commit: bool = True):
         self.db = db
+        self.auto_commit = auto_commit
 
     @staticmethod
     def _elapsed_hours(start: datetime, end: datetime) -> float:
@@ -44,7 +48,7 @@ class OperationService:
 
     def _commit_or_conflict(self, detail: str):
         try:
-            self.db.commit()
+            self.db.commit() if self.auto_commit else self.db.flush()
         except IntegrityError as exc:
             self.db.rollback()
             raise HTTPException(status_code=409, detail=detail) from exc
@@ -90,18 +94,18 @@ class OperationService:
         if not active:
             raise HTTPException(status_code=409, detail="Active installation record is missing.")
         now = datetime.utcnow()
-        hours = self._elapsed_hours(active.installed_at, now)
+        hours = RuntimeService(self.db).installation(active, now)["hours"]
         active.removed_at = now
         active.removed_by = operator_name
         active.removal_reason = reason
         active.campaign_hours = hours
-        stand.lifetime_hours = round((stand.lifetime_hours or 0.0) + hours, 2)
+        # Legacy lifetime is preserved, never incremented with elapsed or partial runtime.
         stand.current_location = LocationEnum.WIP
         stand.current_status = StatusEnum.PENDING
         stand.current_position_id = None
         self.db.add(ActivityLog(user_id=user_id, action="REMOVE_STAND", timestamp=now, details=f"Stand {stand.code} removed to PENDING. Reason: {reason or 'not recorded'}. Operator: {operator_name or 'not recorded'}."))
         self._commit_or_conflict("Stand removal conflicted with another update.")
-        return {"status": "success", "message": f"Stand {stand.code} removed and marked PENDING.", "campaign_hours": hours, "lifetime_hours": stand.lifetime_hours}
+        return {"status": "success", "message": f"Stand {stand.code} removed and marked PENDING.", "campaign_hours": hours, "lifetime_hours": RuntimeService(self.db).stand_runtime(stand)["lifetime_hours"]}
 
     def change_stand(self, payload, user_id: int | None):
         if payload.removed_stand_code == payload.installed_stand_code:
@@ -124,6 +128,10 @@ class OperationService:
             raise HTTPException(status_code=409, detail="Active installation record not found.")
 
         now = datetime.utcnow()
+        if payload.changed_at is not None:
+            actor = self.db.get(User, user_id) if user_id is not None else None
+            if actor is None or actor.role_id != ADMIN_ROLE_ID:
+                raise HTTPException(403, "Only admins may enter backdated stand changes.")
         change_time = payload.changed_at or now
         if change_time.tzinfo is not None:
             change_time = change_time.astimezone(timezone.utc).replace(tzinfo=None)
@@ -132,12 +140,12 @@ class OperationService:
         if change_time < active.installed_at:
             raise HTTPException(status_code=400, detail="Stand change time cannot be before the current stand was installed.")
 
-        hours = self._elapsed_hours(active.installed_at, change_time)
+        hours = RuntimeService(self.db).measure(self._get_position_locked(payload.position_id).line_id, active.installed_at, change_time)["hours"]
         active.removed_at = change_time
         active.removed_by = payload.changed_by
         active.removal_reason = payload.reason
         active.campaign_hours = hours
-        removed.lifetime_hours = round((removed.lifetime_hours or 0.0) + hours, 2)
+        # Measured total is derived from the runtime ledger, not frozen here.
         removed.current_location = LocationEnum.WIP
         removed.current_status = StatusEnum.PENDING
         removed.current_position_id = None
@@ -162,7 +170,7 @@ class OperationService:
         self.db.add(StandChangeEvent(position_id=payload.position_id, removed_stand_id=removed.id, installed_stand_id=installed.id, changed_at=change_time, changed_by=payload.changed_by, reason=payload.reason, notes=payload.notes, removed_condition=payload.removed_condition))
         self.db.add(ActivityLog(user_id=user_id, action="CHANGE_STAND", timestamp=change_time, details=f"Position {payload.position_id}: {removed.code} -> {installed.code}. Reason: {payload.reason}. Operator: {payload.changed_by}."))
         self._commit_or_conflict("Another user changed this stand or position.")
-        return {"status": "success", "removed_stand": removed.code, "installed_stand": installed.code, "changed_at": change_time, "removed_campaign_hours": hours, "removed_lifetime_hours": removed.lifetime_hours, "removed_new_status": StatusEnum.PENDING, "installed_new_status": StatusEnum.INSTALLED}
+        return {"status": "success", "removed_stand": removed.code, "installed_stand": installed.code, "changed_at": change_time, "removed_campaign_hours": hours, "removed_lifetime_hours": RuntimeService(self.db).stand_runtime(removed)["lifetime_hours"], "removed_new_status": StatusEnum.PENDING, "installed_new_status": StatusEnum.INSTALLED}
 
     def update_preparation_status(self, stand_code: str, status: StatusEnum, user_id: int | None, updated_by: str, remarks: str | None = None):
         stand = self._get_stand_locked(stand_code)
@@ -182,6 +190,10 @@ class OperationService:
         target_index = PREPARATION_FLOW.index(status)
         is_next_step = target_index == current_index + 1
         is_rework_reset = status == StatusEnum.PENDING
+        if is_rework_reset:
+            actor = self.db.get(User, user_id) if user_id is not None else None
+            if actor is None or actor.role_id != ADMIN_ROLE_ID:
+                raise HTTPException(403, "Only admins may reset preparation status.")
         if not (is_next_step or is_rework_reset):
             expected = PREPARATION_FLOW[current_index + 1].value if current_index < len(PREPARATION_FLOW) - 1 else "PENDING (for rework)"
             raise HTTPException(status_code=400, detail=f"Next allowed status: {expected}.")
@@ -192,6 +204,8 @@ class OperationService:
         now = datetime.utcnow()
 
         if current == StatusEnum.PENDING and status == StatusEnum.GAUGING:
+            from app.services.component_lifecycle_service import ComponentLifecycleService
+            ComponentLifecycleService(self.db).finalize_preparation(stand, now, operator)
             component_prep = self.db.query(StandComponentPreparation).filter(
                 StandComponentPreparation.stand_id == stand.id,
                 StandComponentPreparation.finalized_at.is_(None),

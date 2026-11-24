@@ -7,7 +7,11 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
+from typing import Annotated, Literal
+import math
+from pydantic import Field, ConfigDict, ValidationError
+from app.services.command_service import run_command
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -26,15 +30,35 @@ logger = logging.getLogger(__name__)
 
 
 class ReportInput(BaseModel):
-    text: str
+    text: str = Field(min_length=1,max_length=20000)
+
+
+class ReportAction(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    type: Literal['STAND_CHANGE','STAND_STATUS','ENTRY_GUIDE_SUMMARY','ENTRY_GUIDE_CHANGE']
+    confidence: float = Field(ge=0,le=1,allow_inf_nan=False)
+    stand: str|None = Field(default=None,max_length=50)
+    status: str|None = Field(default=None,max_length=30)
+    line: str|None = Field(default=None,max_length=30)
+    position: int|None = Field(default=None,ge=1,le=10)
+    stand_removed: str|None = Field(default=None,max_length=50)
+    stand_fixed: str|None = Field(default=None,max_length=50)
+    done_by: str|None = Field(default=None,max_length=100)
+    reason: str|None = Field(default=None,max_length=255)
+    date: str|None = Field(default=None,max_length=30)
+    time: str|None = Field(default=None,max_length=20)
+    shift: str|None = Field(default=None,max_length=10)
+    guide_condition: str|None = Field(default=None,max_length=30)
+    old_ready: int|None = Field(default=None,ge=0)
+    new_ready: int|None = Field(default=None,ge=0)
 
 
 class ValidateInput(BaseModel):
-    actions: list[dict]
+    actions: list[ReportAction] = Field(min_length=1,max_length=100)
 
 
-class ConfirmInput(BaseModel):
-    actions: list[dict]
+class ConfirmInput(ValidateInput):
+    pass
 
 
 SCHEMA = {
@@ -201,10 +225,9 @@ def _gemini_request(key, model, text):
     req = urllib.request.Request(url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json", "x-goog-api-key": key}, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=20) as response:
-            raw = json.loads(response.read().decode())
+            raw = json.loads(response.read(2_000_001).decode())
     except urllib.error.HTTPError as exc:
-        body_text = exc.read().decode(errors="ignore")[:1200].replace("\n", " ").replace("\r", " ")
-        logger.warning("Gemini model=%s HTTP %s: %s", model, exc.code, body_text)
+        logger.warning("Gemini model=%s HTTP %s", model, exc.code)
         raise RuntimeError(f"Gemini {model} HTTP {exc.code}") from exc
     result_text = raw["candidates"][0]["content"]["parts"][0]["text"]
     return json.loads(result_text)
@@ -260,8 +283,11 @@ def _find_position(db: Session, line_name: str | None, position_number: int | No
 
 def validate_action(db: Session, action: dict):
     kind = action.get("type")
-    confidence = float(action.get("confidence") or 0)
-    if confidence and confidence < 0.75:
+    try:
+        confidence = float(action.get("confidence") or 0)
+    except (TypeError,ValueError):
+        return "REVIEW", "Confidence is invalid."
+    if not math.isfinite(confidence) or not 0.75 <= confidence <= 1:
         return "REVIEW", "AI confidence is low. Check this item before updating."
 
     if kind == "STAND_STATUS":
@@ -330,6 +356,7 @@ def analyse_report(payload: ReportInput, user: User = Depends(require_operator))
     try:
         parsed = gemini_parse(text)
         model = parsed.pop("model", None)
+        parsed["actions"] = [ReportAction.model_validate(a).model_dump() for a in parsed.get("actions", [])[:100]]
     except Exception as exc:
         ai_error = str(exc)
         logger.warning("Gemini unavailable; fallback parser used: %s", ai_error)
@@ -343,7 +370,8 @@ def analyse_report(payload: ReportInput, user: User = Depends(require_operator))
 def validate_report(payload: ValidateInput, db: Session = Depends(get_db), user: User = Depends(require_operator)):
     items = []
     counts = {"SAFE": 0, "REVIEW": 0, "CONFLICT": 0}
-    for index, action in enumerate(payload.actions):
+    for index, action_model in enumerate(payload.actions):
+        action = action_model.model_dump()
         state, message = validate_action(db, action)
         counts[state] += 1
         items.append({"index": index, "state": state, "message": message, "action": action})
@@ -351,43 +379,30 @@ def validate_report(payload: ValidateInput, db: Session = Depends(get_db), user:
 
 
 @router.post("/confirm")
-def confirm_report(payload: ConfirmInput, db: Session = Depends(get_db), user: User = Depends(require_operator)):
-    service = OperationService(db)
-    results = []
-    for action in payload.actions:
-        state, message = validate_action(db, action)
-        if state != "SAFE":
-            results.append({"action": action, "status": "SKIPPED", "message": message})
-            continue
-        try:
-            if action.get("type") == "STAND_STATUS":
-                stand = db.query(StandAsset).filter(StandAsset.code == (action.get("stand") or "").strip().upper()).first()
-                target_raw = (action.get("status") or "").strip().upper()
-                target = StatusEnum.PENDING if target_raw == "YET_TO_READY" else StatusEnum(target_raw)
-                if stand and stand.current_status == target:
-                    results.append({"action": action, "status": "NO_CHANGE", "message": f"{stand.code} already {target.value}."})
+def confirm_report(payload: ConfirmInput, db: Session = Depends(get_db), user: User = Depends(require_operator), idempotency_key: Annotated[str|None,Header()] = None):
+    def execute():
+        actions=[a.model_dump() for a in payload.actions]
+        for action in actions:
+            state,message=validate_action(db,action)
+            if state != 'SAFE':
+                raise HTTPException(409,f"No changes saved. {message}")
+        service=OperationService(db,auto_commit=False)
+        results=[]
+        for action in actions:
+            if action['type']=='STAND_STATUS':
+                stand=db.query(StandAsset).filter(StandAsset.code==action['stand'].strip().upper()).first()
+                raw=action['status'].strip().upper()
+                target=StatusEnum.PENDING if raw=='YET_TO_READY' else StatusEnum(raw)
+                if stand.current_status==target:
+                    results.append({'status':'NO_CHANGE','stand':stand.code})
                     continue
-                done_by = (action.get("done_by") or user.username).strip()
-                result = service.update_preparation_status(action["stand"].strip().upper(), target, user.id, done_by, "Imported from shift report")
-                results.append({"action": action, "status": "UPDATED", "result": result})
-            elif action.get("type") == "STAND_CHANGE":
-                position = _find_position(db, action.get("line"), action.get("position"))
-                changed_at, _ = _parse_changed_at(action)
-                change = ChangeStandSchema(
-                    position_id=position.id,
-                    removed_stand_code=action["stand_removed"].strip().upper(),
-                    installed_stand_code=action["stand_fixed"].strip().upper(),
-                    changed_by=action["done_by"].strip(),
-                    reason=action["reason"].strip(),
-                    changed_at=changed_at,
-                    notes="Imported from shift report",
-                )
-                result = service.change_stand(change, user.id)
-                results.append({"action": action, "status": "UPDATED", "result": result})
+                result=service.update_preparation_status(stand.code,target,user.id,(action.get('done_by') or user.username).strip(),'Imported from explicitly confirmed report')
+            elif action['type']=='STAND_CHANGE':
+                position=_find_position(db,action.get('line'),action.get('position'))
+                changed_at,_=_parse_changed_at(action)
+                result=service.change_stand(ChangeStandSchema(position_id=position.id,removed_stand_code=action['stand_removed'].strip().upper(),installed_stand_code=action['stand_fixed'].strip().upper(),changed_by=action['done_by'].strip(),reason=action['reason'].strip(),changed_at=changed_at,notes='Explicitly confirmed shift report'),user.id)
             else:
-                results.append({"action": action, "status": "SKIPPED", "message": "Automatic update not supported for this action."})
-        except HTTPException as exc:
-            db.rollback()
-            results.append({"action": action, "status": "FAILED", "message": str(exc.detail)})
-    updated = sum(1 for item in results if item["status"] == "UPDATED")
-    return {"updated": updated, "results": results, "confirmed_by": user.username}
+                raise HTTPException(400,'Unsupported operation; no changes saved.')
+            results.append({'status':'UPDATED','result':result})
+        return {'updated':sum(r['status']=='UPDATED' for r in results),'results':results,'confirmed_by':user.username}
+    return run_command(db,user.id,idempotency_key,'REPORT_IMPORT',payload.model_dump(),execute)

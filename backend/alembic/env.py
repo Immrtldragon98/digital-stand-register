@@ -34,7 +34,7 @@ target_metadata = Base.metadata
 # Use the application's database URL.
 config.set_main_option(
     "sqlalchemy.url",
-    settings.DATABASE_URL
+    settings.DATABASE_URL.replace("%", "%%")
 )
 
 

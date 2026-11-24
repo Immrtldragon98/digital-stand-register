@@ -33,3 +33,37 @@ def root_health():
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+
+
+@app.get('/ready')
+def readiness():
+    from sqlalchemy import text
+    from app.database.session import engine
+    from fastapi.responses import JSONResponse
+    try:
+        with engine.connect() as connection:
+            connection.execute(text('SELECT 1'))
+        return {'status':'ready','database':'reachable'}
+    except Exception:
+        return JSONResponse(status_code=503,content={'status':'unavailable','database':'unreachable'})
+
+
+@app.middleware('http')
+async def request_diagnostics(request, call_next):
+    import logging
+    import time
+    import uuid
+    from fastapi.responses import JSONResponse
+    request_id = uuid.uuid4().hex
+    started = time.monotonic()
+    logger = logging.getLogger('dsr.requests')
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        logger.error('request_id=%s method=%s path=%s exception=%s', request_id,request.method,request.url.path,type(exc).__name__)
+        response = JSONResponse(status_code=500,content={'detail':'Request failed. Check current state before retrying.','request_id':request_id})
+    response.headers['X-Request-ID'] = request_id
+    if request.url.path.startswith('/api/'):
+        response.headers['Cache-Control'] = 'no-store'
+    logger.info('request_id=%s method=%s path=%s status=%s elapsed_ms=%.1f',request_id,request.method,request.url.path,response.status_code,(time.monotonic()-started)*1000)
+    return response

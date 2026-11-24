@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.models.line import Line
 from app.models.stand_installation import StandInstallation
 from app.models.entry_guide_installation import EntryGuideInstallation
+from app.services.runtime_service import RuntimeService
 
 
 class DashboardService:
@@ -37,6 +38,7 @@ class DashboardService:
         )
         guides_by_position = {item.position_id: item for item in guide_installations}
 
+        runtime = RuntimeService(self.db)
         dashboard_data = []
         for line in lines:
             line_positions = []
@@ -46,10 +48,11 @@ class DashboardService:
 
                 stand_payload = None
                 if active_stand:
-                    campaign_hours = self._hours(active_stand.installed_at)
+                    reading = runtime.installation(active_stand)
+                    campaign_hours = reading["hours"]
                     target = pos.target_life_hours
-                    life_percent = round((campaign_hours / target) * 100, 1) if target else None
-                    remaining_hours = round(max(0.0, target - campaign_hours), 1) if target else None
+                    life_percent = round((campaign_hours / target) * 100, 1) if target and campaign_hours is not None else None
+                    remaining_hours = round(max(0.0, target - campaign_hours), 1) if target and campaign_hours is not None else None
                     stand_payload = {
                         "id": active_stand.stand.id,
                         "code": active_stand.stand.code,
@@ -58,7 +61,8 @@ class DashboardService:
                         "target_life_hours": target,
                         "life_percent": life_percent,
                         "remaining_hours": remaining_hours,
-                        "lifetime_hours": round((active_stand.stand.lifetime_hours or 0.0) + campaign_hours, 2),
+                        **runtime.stand_runtime(active_stand.stand),
+                        "known_runtime_hours": reading["known_hours"], "runtime_complete": reading["complete"], "elapsed_hours": reading["elapsed_hours"],
                         "leakage": active_stand.stand.leakage,
                         "vibration": active_stand.stand.vibration,
                         "abnormal_sound": active_stand.stand.abnormal_sound,
@@ -76,8 +80,10 @@ class DashboardService:
                         "code": active_guide.guide.code,
                         "condition": active_guide.guide.condition,
                         "installed_at": active_guide.installed_at,
-                        "campaign_hours": self._hours(active_guide.installed_at),
-                        "lifetime_hours": round((active_guide.guide.lifetime_hours or 0.0) + self._hours(active_guide.installed_at), 2),
+                        "campaign_hours": runtime.installation(active_guide)["hours"],
+                        "known_runtime_hours": runtime.installation(active_guide)["known_hours"],
+                        "runtime_complete": runtime.installation(active_guide)["complete"],
+                        **runtime.stand_runtime(active_guide.guide, self.db.query(EntryGuideInstallation).filter_by(guide_id=active_guide.guide.id).all()),
                     } if active_guide else None,
                 })
 

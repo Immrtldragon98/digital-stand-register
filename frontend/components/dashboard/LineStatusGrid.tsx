@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { fetchApi } from "@/lib/api";
+import { runtimeLabel } from "@/lib/runtime-display";
 import StandDetails from "@/components/stand/StandDetails";
 
 function run(v:unknown){const h=Number(v??0);if(!Number.isFinite(h)||h<=0)return"0 h";const d=Math.floor(h/24),r=Math.floor(h%24);return d?`${d}d ${r}h`:`${Math.floor(h)} h`;}
@@ -26,7 +27,7 @@ export default function LineStatusGrid({lines}:{lines:any[]}){
             <div className="text-xl font-semibold text-white mt-1 truncate">{s?.code||"—"}</div>
             <div className="mt-1.5 space-y-0.5 text-xs text-slate-300">
               <div className="truncate"><span className="text-slate-400">Installed </span>{date(s?.installed_at)}</div>
-              <div className="truncate"><span className="text-slate-400">Running </span>{run(s?.campaign_hours)}</div>
+              <div className="truncate"><span className="text-slate-400">Running </span>{runtimeLabel(s?.campaign_hours,s?.known_runtime_hours,s?.runtime_complete)}</div>
               {life!=null&&<div className={`font-semibold ${life>=90?"text-rose-300":life>=75?"text-amber-300":"text-emerald-300"}`}><span className="text-slate-400 font-normal">Life </span>{life}%</div>}
             </div>
             <div className="mt-2 flex flex-wrap gap-1 min-h-[18px]">

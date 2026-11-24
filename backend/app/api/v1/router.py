@@ -20,3 +20,5 @@ api_router.include_router(intelligence.router, prefix="/intelligence", tags=["Ca
 api_router.include_router(investigation.router, prefix="/investigation", tags=["Stand Life Investigation"])
 api_router.include_router(system.router, prefix="/system", tags=["System Status"])
 api_router.include_router(pm.router, prefix="/pm", tags=["PM Schedule"])
+from app.api.routes import runtime
+api_router.include_router(runtime.router, prefix='/runtime', tags=['Mill Runtime'])

@@ -6,6 +6,7 @@ from app.models.enums import LocationEnum, StatusEnum
 from app.models.entry_guide_installation import EntryGuideInstallation
 from app.models.stand_position import Position
 from app.models.activity_log import ActivityLog
+from app.services.runtime_service import RuntimeService
 
 
 GUIDE_POSITIONS = {2, 4, 6, 8, 10}
@@ -74,12 +75,12 @@ class EntryGuideService:
             raise HTTPException(status_code=400, detail="Entry guide is not currently installed.")
 
         now = datetime.utcnow()
-        hours = self._elapsed_hours(active.installed_at, now)
+        hours = RuntimeService(self.db).installation(active, now)["hours"]
         active.removed_at = now
         active.removed_by = removed_by
         active.removal_reason = removal_reason
         active.campaign_hours = hours
-        guide.lifetime_hours = round((guide.lifetime_hours or 0.0) + hours, 2)
+        # Preserve legacy unverified lifetime; measured totals derive from ledger.
         guide.current_location = LocationEnum.WIP
         guide.current_status = StatusEnum.PENDING
         guide.current_position_id = None

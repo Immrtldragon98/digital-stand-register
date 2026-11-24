@@ -8,6 +8,7 @@ from app.models.entry_guide_installation import EntryGuideInstallation
 from app.models.stand_position import Position
 from app.models.stand_preparation_event import StandPreparationEvent
 from app.models.stand_component import StandComponentPreparation, StandComponentPreparationItem
+from app.services.runtime_service import RuntimeService
 
 
 class StandService:
@@ -20,6 +21,10 @@ class StandService:
         return round(max(0.0, (end - start).total_seconds() / 3600.0), 2)
 
     def get_all_stands(self):
+        runtime = RuntimeService(self.db)
+        histories = {}
+        for inst in self.db.query(StandInstallation).all():
+            histories.setdefault(inst.stand_id, []).append(inst)
         return [
             {
                 "id": stand.id,
@@ -27,7 +32,7 @@ class StandService:
                 "current_location": stand.current_location,
                 "current_status": stand.current_status,
                 "current_position_id": stand.current_position_id,
-                "lifetime_hours": stand.lifetime_hours,
+                **runtime.stand_runtime(stand, histories.get(stand.id, [])),
                 "leakage": stand.leakage,
                 "vibration": stand.vibration,
                 "abnormal_sound": stand.abnormal_sound,
@@ -44,9 +49,12 @@ class StandService:
             StandInstallation.stand_id == stand_id
         ).order_by(StandInstallation.installed_at.desc()).all()
 
+        runtime = RuntimeService(self.db)
         active = next((x for x in installations if x.removed_at is None), None)
-        current_campaign_hours = self._hours(active.installed_at, datetime.utcnow()) if active else 0.0
-        total_hours = round((stand.lifetime_hours or 0.0) + current_campaign_hours, 2)
+        reading = runtime.installation(active) if active else dict(hours=None,known_hours=0,complete=False,elapsed_hours=0)
+        current_campaign_hours = reading["hours"]
+        totals = runtime.stand_runtime(stand, installations)
+        total_hours = totals["lifetime_hours"]
 
         current_position = None
         current_guide = None
@@ -58,7 +66,7 @@ class StandService:
                     EntryGuideInstallation.removed_at.is_(None),
                 ).first()
                 if guide_inst:
-                    guide_campaign = self._hours(guide_inst.installed_at, datetime.utcnow())
+                    guide_campaign = runtime.installation(guide_inst)["hours"]
                     guide_history = self.db.query(EntryGuideInstallation).filter(
                         EntryGuideInstallation.guide_id == guide_inst.guide.id
                     ).order_by(EntryGuideInstallation.installed_at.desc()).all()
@@ -67,7 +75,7 @@ class StandService:
                         "code": guide_inst.guide.code,
                         "condition": guide_inst.guide.condition,
                         "condition_notes": guide_inst.guide.condition_notes,
-                        "lifetime_hours": round((guide_inst.guide.lifetime_hours or 0.0) + guide_campaign, 2),
+                        **runtime.stand_runtime(guide_inst.guide, guide_history),
                         "current_campaign_hours": guide_campaign,
                         "installed_at": guide_inst.installed_at,
                         "history": [
@@ -75,7 +83,8 @@ class StandService:
                                 "position_id": item.position_id,
                                 "installed_at": item.installed_at,
                                 "removed_at": item.removed_at,
-                                "campaign_hours": item.campaign_hours,
+                                "campaign_hours": runtime.installation(item)["hours"],
+                                "elapsed_hours": runtime.installation(item)["elapsed_hours"],
                                 "installed_by": item.installed_by,
                                 "removed_by": item.removed_by,
                                 "removal_reason": item.removal_reason,
@@ -107,7 +116,8 @@ class StandService:
                         "expected_life_hours": item.component_type.expected_life_hours,
                         "criticality": item.component_type.criticality,
                         "current_campaign_hours": current_campaign_hours,
-                        "estimated_total_life_hours": round((item.carried_life_hours or 0.0) + current_campaign_hours, 2),
+                        "estimated_total_life_hours": None,
+                        "life_note": "Legacy pooled quantities do not identify individual component lifetime.",
                     }
                     for item in latest_components.items
                 ],
@@ -117,7 +127,10 @@ class StandService:
             "position_id": inst.position_id,
             "installed_at": inst.installed_at,
             "removed_at": inst.removed_at,
-            "campaign_hours": inst.campaign_hours,
+            "campaign_hours": runtime.installation(inst)["hours"],
+            "known_runtime_hours": runtime.installation(inst)["known_hours"],
+            "runtime_complete": runtime.installation(inst)["complete"],
+            "elapsed_hours": runtime.installation(inst)["elapsed_hours"],
             "installed_by": inst.installed_by,
             "removed_by": inst.removed_by,
             "removal_reason": inst.removal_reason,
@@ -142,7 +155,10 @@ class StandService:
             "current_position_id": stand.current_position_id,
             "position_number": current_position.position_number if current_position else None,
             "current_installed_at": active.installed_at if active else None,
-            "lifetime_hours": total_hours,
+            **totals,
+            "known_runtime_hours": reading["known_hours"],
+            "runtime_complete": reading["complete"],
+            "elapsed_hours": reading["elapsed_hours"],
             "current_campaign_hours": current_campaign_hours,
             "leakage": stand.leakage,
             "vibration": stand.vibration,

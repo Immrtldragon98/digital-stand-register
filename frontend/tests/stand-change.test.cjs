@@ -3,9 +3,10 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const ts=require('typescript');
+class ApiError extends Error {constructor(message,status){super(message);this.status=status;}}
 function client(fetchApi){
  let invalidations=0;
- const context={exports:{},require:()=>({fetchApi,invalidateApiCache:()=>invalidations++})};
+ const context={exports:{},require:()=>({fetchApi,ApiError,invalidateApiCache:()=>invalidations++})};
  const source=ts.transpileModule(fs.readFileSync('lib/stand-change.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText;
  vm.runInNewContext(source,context);
  return {...context.exports,invalidations:()=>invalidations};
@@ -45,4 +46,9 @@ test('failed preflight sends no write and an uncertain write is never retried',a
  const api=client(async(path)=>{if(path==='/dashboard/')return lines;if(path==='/stands/')return ready;writes++;throw new Error('Gateway timeout');});
  await assert.rejects(api.saveStandChange(payload),/Gateway timeout/);
  assert.equal(writes,1);
+});
+
+test('lost write response recovers saved receipt without duplicate POST',async()=>{
+ let writes=0;const api=client(async(path,options)=>{if(path.startsWith('/operations/commands/'))return {recovered:true};if(path==='/dashboard/')return lines;if(path==='/stands/')return ready;writes++;assert.ok(options.headers['Idempotency-Key']);throw new Error('Lost');});
+ await assert.rejects(api.saveStandChange(payload),/Lost/);assert.equal((await api.saveStandChange(payload)).recovered,true);assert.equal(writes,1);
 });

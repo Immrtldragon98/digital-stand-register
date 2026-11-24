@@ -14,6 +14,7 @@ class StandComponentType(Base):
     expected_life_hours = Column(Float, nullable=True)
     criticality = Column(String(16), nullable=True)
     active = Column(Boolean, nullable=False, default=True)
+    inventory_item_id = Column(Integer, ForeignKey("inventory_items.id"), nullable=True)
 
 
 class StandComponentPreparation(Base):

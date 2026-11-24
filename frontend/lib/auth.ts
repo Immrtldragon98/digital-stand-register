@@ -15,21 +15,17 @@ export function getToken(): string | null {
 
 export function getUser(): AuthUser | null {
   if (typeof window === "undefined") return null;
-  const raw = window.localStorage.getItem(USER_KEY);
-  if (!raw) return null;
-  try { return JSON.parse(raw) as AuthUser; } catch { return null; }
+  try { const raw = window.localStorage.getItem(USER_KEY); return raw ? JSON.parse(raw) as AuthUser : null; } catch { return null; }
 }
 
 export function setSession(token: string, user: AuthUser) {
-  window.localStorage.setItem(TOKEN_KEY, token);
-  window.localStorage.setItem(USER_KEY, JSON.stringify(user));
+  try { window.localStorage.setItem(TOKEN_KEY, token); window.localStorage.setItem(USER_KEY, JSON.stringify(user)); } catch { throw new Error("Browser storage is unavailable. Enable local storage to sign in."); }
   window.dispatchEvent(new Event("dsr-auth-change"));
 }
 
 export function clearSession() {
   if (typeof window === "undefined") return;
-  window.localStorage.removeItem(TOKEN_KEY);
-  window.localStorage.removeItem(USER_KEY);
+  try { window.localStorage.removeItem(TOKEN_KEY); window.localStorage.removeItem(USER_KEY); } catch { /* Storage may have been revoked. */ }
   window.dispatchEvent(new Event("dsr-auth-change"));
 }
 

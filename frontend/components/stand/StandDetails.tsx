@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Activity, AlertTriangle, Clock, Droplets, Gauge, Layers, MapPin, Plus, Volume2 } from "lucide-react";
 import { fetchApi } from "@/lib/api";
+import { runtimeHours, runtimeLabel } from "@/lib/runtime-display";
 import { getUser } from "@/lib/auth";
 
 type EventRow={id:number;category:string;event_type:string;severity:string;component_name?:string|null;duration_minutes?:number|null;description?:string|null;action_taken?:string|null;event_at:string;recorded_by:string};
@@ -56,8 +57,8 @@ export default function StandDetails({ stand }: { stand: any }) {
     {tab==="overview"&&<>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
         <Info icon={<Clock />} label="Installed" value={stand.current_installed_at?shortDate(stand.current_installed_at):"—"} />
-        <Info icon={<Clock />} label="Current Campaign" value={fmtHours(stand.current_campaign_hours)} />
-        <Info icon={<Clock />} label="Total Stand Life" value={fmtHours(stand.lifetime_hours)} />
+        <Info icon={<Clock />} label="Current Campaign" value={runtimeLabel(stand.current_campaign_hours,stand.known_runtime_hours,stand.runtime_complete)} />
+        <Info icon={<Clock />} label="Measured Stand Life" value={runtimeLabel(stand.lifetime_hours,stand.measured_lifetime_hours,stand.lifetime_complete)} />
         <Info icon={<MapPin />} label="Position" value={stand.position_number ? `P${stand.position_number}` : "Spare"} />
         <Info icon={<Droplets />} label="Leakage" value={condition.leakage ? "YES" : "No"} warn={condition.leakage} />
         <Info icon={<Activity />} label="Vibration" value={condition.vibration ? "YES" : "No"} warn={condition.vibration} />
@@ -93,7 +94,7 @@ export default function StandDetails({ stand }: { stand: any }) {
 function pretty(value:string){return (value||"").replaceAll("_"," ").toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());}
 function dateTime(value:string){return new Date(value).toLocaleString();}
 function shortDate(value:string){return new Date(value).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"2-digit"});}
-function fmtHours(v:any){const n=Number(v);return Number.isFinite(n)?`${n.toFixed(n<10?1:0)} h`:"—";}
+function oldFmtHours(v:any){const n=Number(v);return Number.isFinite(n)?`${n.toFixed(n<10?1:0)} h`:"—";}
 function lifePercent(total:any,expected:any){const t=Number(total),e=Number(expected);if(!Number.isFinite(t)||!Number.isFinite(e)||e<=0)return null;return Math.round((t/e)*100);}
 function healthLabel(pct:number|null){if(pct===null)return "—";if(pct>=100)return "OVER LIFE";if(pct>=90)return "REPLACE SOON";if(pct>=70)return "WATCH";return "GOOD";}
 function healthClass(label:string){return label==="OVER LIFE"?"text-red-300":label==="REPLACE SOON"?"text-orange-300":label==="WATCH"?"text-amber-300":label==="GOOD"?"text-emerald-300":"text-slate-400";}
@@ -104,3 +105,5 @@ function HistoryPanel({title,children}:{title:string;children:React.ReactNode}){
 function HistoryItem({title,detail}:{title:string;detail:string}){return <div className="border border-slate-800 rounded-lg p-3 text-xs text-slate-300"><div>{title}</div><div className="text-slate-400 mt-1 leading-relaxed">{detail}</div></div>}
 function Field({label,children}:{label:string;children:React.ReactNode}){return <label className="block"><span className="metric-label">{label}</span><div className="mt-1.5">{children}</div></label>}
 function Empty({text}:{text:string}){return <div className="dsr-empty">{text}</div>}
+
+const fmtHours = runtimeHours;

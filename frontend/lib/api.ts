@@ -7,13 +7,16 @@ type CacheEntry = { expires: number; value: unknown };
 const responseCache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<unknown>>();
 const GET_TTL_MS = 30_000;
+let generation = 0;
+export class ApiError extends Error { constructor(message:string, public status:number){super(message);this.name="ApiError";} }
 
 function cacheKey(endpoint: string) {
   // Read endpoints are public in DSR; endpoint is enough for a short UI cache.
-  return endpoint;
+  return `${generation}:${getToken()||"public"}:${endpoint}`;
 }
 
 function clearReadCache() {
+  generation++;
   responseCache.clear();
 }
 
@@ -62,10 +65,10 @@ async function request(endpoint: string, options: RequestInit) {
       if (!response) throw new Error("Cannot connect to the server. Check your connection; automatic reconnection will continue.");
       if (html || !response.ok) {
         const errorData = html ? {} : await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || (unavailable
+        throw new ApiError((typeof errorData.detail === "string" ? errorData.detail : null) || (unavailable
           ? (read ? "The server is starting or unavailable. Reconnecting automatically."
             : "Could not confirm whether the change was saved. Refresh current stands and check the running stand before trying again.")
-          : `API request failed with status ${response.status}`));
+          : `API request failed with status ${response.status}`), response.status);
       }
       const contentType = response.headers.get("content-type") || "";
       if (!contentType.includes("application/json")) return response;
@@ -93,6 +96,8 @@ export async function fetchApi(endpoint: string, options: RequestInit = {}) {
     return result;
   }
 
+  if(options.signal) return request(endpoint,options);
+  const readGeneration = generation;
   const key = cacheKey(endpoint);
   const now = Date.now();
   const cached = responseCache.get(key);
@@ -104,7 +109,7 @@ export async function fetchApi(endpoint: string, options: RequestInit = {}) {
   const promise = request(endpoint, options)
     .then((value) => {
       // Do not cache Response objects such as file downloads.
-      if (!(typeof Response !== "undefined" && value instanceof Response)) {
+      if (readGeneration===generation && !(typeof Response !== "undefined" && value instanceof Response)) {
         responseCache.set(key, { expires: Date.now() + GET_TTL_MS, value });
       }
       return value;

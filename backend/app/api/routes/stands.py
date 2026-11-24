@@ -4,6 +4,12 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+from typing import Literal
+from app.models.component_asset import ComponentAsset, ComponentFitting, PreparationAssetSelection
+from app.models.inventory_item import InventoryItem
+from app.models.activity_log import ActivityLog
+from app.services.component_lifecycle_service import ComponentLifecycleService
 
 from app.auth.dependencies import require_admin, require_operator
 from app.database.session import get_db
@@ -29,10 +35,11 @@ class ComponentItemInput(BaseModel):
     new_qty: int = Field(default=0, ge=0)
     reused_qty: int = Field(default=0, ge=0)
     carried_life_hours: float | None = Field(default=None, ge=0)
+    asset_ids: list[int] = Field(default_factory=list, max_length=100)
 
 
 class ComponentPreparationInput(BaseModel):
-    items: list[ComponentItemInput] = []
+    items: list[ComponentItemInput] = Field(default_factory=list, max_length=100)
     prepared_by: str = Field(min_length=1, max_length=100)
     notes: str | None = Field(default=None, max_length=1000)
     skip: bool = False
@@ -59,6 +66,11 @@ def _component_payload(db: Session, stand: StandAsset):
         StandComponentPreparation.finalized_at.is_(None),
     ).order_by(StandComponentPreparation.created_at.desc()).first()
     item_map = {i.component_type_id: i for i in (latest.items if latest else [])}
+    selections = db.query(PreparationAssetSelection).filter_by(preparation_id=latest.id).all() if latest else []
+    lifecycle = ComponentLifecycleService(db)
+    assets = db.query(ComponentAsset).order_by(ComponentAsset.code).all()
+    asset_payloads = [lifecycle.asset_payload(asset, stand.id) for asset in assets]
+    inventories = {item.id: item for item in db.query(InventoryItem).all()}
     return {
         "stand_id": stand.id,
         "stand_code": stand.code,
@@ -77,6 +89,10 @@ def _component_payload(db: Session, stand: StandAsset):
                 "reused_qty": item_map[t.id].reused_qty if t.id in item_map else 0,
                 "carried_life_hours": item_map[t.id].carried_life_hours if t.id in item_map else None,
                 "is_extra": bool(t.even_position_extra),
+                "inventory_item_id": t.inventory_item_id,
+                "stock_quantity": inventories[t.inventory_item_id].quantity if t.inventory_item_id in inventories else None,
+                "asset_ids": [selection.asset_id for selection in selections if selection.component_type_id == t.id],
+                "available_assets": [asset for asset in asset_payloads if asset['component_type_id'] == t.id and asset['available']],
             }
             for t in applicable
         ],
@@ -180,12 +196,25 @@ def save_component_preparation(
     db: Session = Depends(get_db),
     _: User = Depends(require_operator),
 ):
-    stand = db.get(StandAsset, stand_id)
+    stand = db.query(StandAsset).filter_by(id=stand_id).with_for_update().first()
     if not stand:
         raise HTTPException(404, "Stand not found")
     if stand.current_status != StatusEnum.PENDING:
         raise HTTPException(400, "Components can be prepared only while the stand is PENDING.")
 
+    if payload.skip and not (payload.notes or '').strip():
+        raise HTTPException(400, 'Skipping tracking requires a reason.')
+    if len({row.component_type_id for row in payload.items}) != len(payload.items):
+        raise HTTPException(400, 'Duplicate component type in preparation.')
+    if any(row.carried_life_hours is not None for row in payload.items):
+        raise HTTPException(400, 'Pooled carried life is not supported. Register prior life on each component identity as admin.')
+    all_ids = [asset_id for row in payload.items for asset_id in row.asset_ids]
+    if len(set(all_ids)) != len(all_ids):
+        raise HTTPException(400, 'A component identity cannot be selected more than once.')
+    if not payload.skip:
+        for row in payload.items:
+            if len(row.asset_ids) != row.new_qty + row.reused_qty:
+                raise HTTPException(400, 'Select one identity for every new and reused component.')
     prepared_by = payload.prepared_by.strip()
     if not prepared_by:
         raise HTTPException(400, "Prepared by is required.")
@@ -208,6 +237,7 @@ def save_component_preparation(
         current.state = "SKIPPED" if payload.skip else "SAVED"
         current.prepared_by = prepared_by
         current.notes = (payload.notes or "").strip() or None
+        db.query(PreparationAssetSelection).filter_by(preparation_id=current.id).delete()
         current.items.clear()
         db.flush()
 
@@ -223,7 +253,7 @@ def save_component_preparation(
             total = row.new_qty + row.reused_qty
             if component.required_qty is not None and total > component.required_qty:
                 raise HTTPException(400, f"{component.name}: new + reused cannot exceed {component.required_qty}.")
-            if total == 0 and row.carried_life_hours is None:
+            if total == 0:
                 continue
             db.add(StandComponentPreparationItem(
                 preparation_id=current.id,
@@ -232,10 +262,81 @@ def save_component_preparation(
                 reused_qty=row.reused_qty,
                 carried_life_hours=row.carried_life_hours,
             ))
+            selected = db.query(ComponentAsset).filter(ComponentAsset.id.in_(row.asset_ids)).all()
+            if len(selected) != len(row.asset_ids) or any(asset.component_type_id != component.id for asset in selected):
+                raise HTTPException(400, 'Selected asset type does not match preparation.')
+            if sum(asset.condition == 'NEW' for asset in selected) != row.new_qty:
+                raise HTTPException(400, 'New component count must match selected identities.')
+            for asset in selected:
+                db.add(PreparationAssetSelection(preparation_id=current.id, component_type_id=component.id, asset_id=asset.id))
 
     db.commit()
     db.refresh(current)
     return _component_payload(db, stand)
+
+
+class ComponentAssetInput(BaseModel):
+    code: str = Field(min_length=1, max_length=100)
+    component_type_id: int
+    condition: Literal['NEW', 'REUSED']
+    prior_life_hours: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+
+
+class ComponentInventoryInput(BaseModel):
+    inventory_item_id: int
+
+
+@router.get('/component-types')
+def component_types(db: Session = Depends(get_db)):
+    stock = {item.id: item for item in db.query(InventoryItem).all()}
+    return [{'id':t.id,'name':t.name,'required_qty':t.required_qty,'inventory_item_id':t.inventory_item_id,
+        'stock_quantity':stock[t.inventory_item_id].quantity if t.inventory_item_id in stock else None}
+        for t in db.query(StandComponentType).filter_by(active=True).order_by(StandComponentType.id).all()]
+
+
+@router.patch('/component-types/{component_type_id}/inventory')
+def map_component_inventory(component_type_id:int, payload:ComponentInventoryInput, db:Session=Depends(get_db), user:User=Depends(require_admin)):
+    component = db.query(StandComponentType).filter_by(id=component_type_id).with_for_update().first()
+    item = db.get(InventoryItem,payload.inventory_item_id)
+    if not component or not item or not item.is_active:
+        raise HTTPException(404, 'Component type or active inventory item not found.')
+    old = component.inventory_item_id
+    component.inventory_item_id = item.id
+    db.add(ActivityLog(user_id=user.id,action='MAP_COMPONENT_STOCK',timestamp=datetime.utcnow(),details=f'Component type {component.id}: inventory {old} -> {item.id}'))
+    db.commit()
+    return {'component_type_id':component.id,'inventory_item_id':item.id}
+
+
+@router.get('/component-assets')
+def list_component_assets(component_type_id:int|None=None, db:Session=Depends(get_db)):
+    query = db.query(ComponentAsset)
+    if component_type_id is not None:
+        query = query.filter_by(component_type_id=component_type_id)
+    service = ComponentLifecycleService(db)
+    return [service.asset_payload(asset) for asset in query.order_by(ComponentAsset.code).limit(2000).all()]
+
+
+@router.post('/component-assets',status_code=201)
+def create_component_asset(payload:ComponentAssetInput, db:Session=Depends(get_db), user:User=Depends(require_admin)):
+    component = db.get(StandComponentType,payload.component_type_id)
+    if not component or not component.active:
+        raise HTTPException(404, 'Active component type not found.')
+    code = payload.code.strip().upper()
+    if not code:
+        raise HTTPException(400, 'Component identity is required.')
+    if payload.condition == 'NEW' and payload.prior_life_hours not in (None,0):
+        raise HTTPException(400, 'New components cannot have prior service life.')
+    asset = ComponentAsset(code=code,component_type_id=component.id,condition=payload.condition,
+        prior_life_hours=0 if payload.condition=='NEW' else payload.prior_life_hours,created_at=datetime.utcnow())
+    db.add(asset)
+    try:
+        db.flush()
+        db.add(ActivityLog(user_id=user.id,action='REGISTER_COMPONENT',timestamp=datetime.utcnow(),details=f'Component {asset.code} registered ({asset.condition}); prior life {asset.prior_life_hours}'))
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, 'Component identity already exists.') from exc
+    return ComponentLifecycleService(db).asset_payload(asset)
 
 
 @router.get("/{stand_id}")

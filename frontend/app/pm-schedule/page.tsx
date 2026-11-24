@@ -1,5 +1,6 @@
 "use client";
 import {useEffect,useMemo,useState} from "react";
+import { confirmationKey } from "@/lib/confirmation-key";
 import Header from "@/components/layout/Header";import {fetchApi} from "@/lib/api";import {getUser} from "@/lib/auth";
 const today=()=>new Date().toISOString().slice(0,10);
 type Row={id:number;planned_date:string;line_name?:string;shift?:string;position_number?:number;stand_code?:string;equipment:string;component?:string;activity_type?:string;activity:string;from_value?:string;to_value?:string;assigned_to?:string;remarks?:string};
@@ -10,7 +11,7 @@ export default function PMActivities(){
  useEffect(()=>{load()},[month,line]);
  async function analyse(){if(!msg.trim())return;setBusy(true);setError("");try{const r=await fetchApi("/pm/analyse-message",{method:"POST",body:JSON.stringify({text:msg})});setPreview(r.activities||[]);setProvider(r.provider||"")}catch(e:any){setError(e.message||"Analysis failed")}finally{setBusy(false)}}
  function patch(i:number,k:string,v:any){setPreview(p=>p.map((x,n)=>n===i?{...x,activity:{...x.activity,[k]:v}}:x))}
- async function confirm(){setBusy(true);try{const activities=preview.map(x=>x.activity);await fetchApi("/pm/confirm-message",{method:"POST",body:JSON.stringify({activities,source_text:msg})});setPreview([]);setMsg("");await load()}catch(e:any){setError(e.message||"Could not save activities")}finally{setBusy(false)}}
+ async function confirm(){setBusy(true);try{const activities=preview.map(x=>x.activity);const body=JSON.stringify({activities,source_text:msg});await fetchApi("/pm/confirm-message",{method:"POST",body,headers:{"Idempotency-Key":confirmationKey("pm-import",body)}});setPreview([]);setMsg("");await load()}catch(e:any){setError(e.message||"Could not save activities")}finally{setBusy(false)}}
  return <div className="dsr-page"><Header title="PM Activities"/><main className="dsr-main"><div className="full-bleed space-y-4">
  <div className="dsr-section-head"><div><div className="dsr-kicker">Maintenance record</div><h1 className="dsr-title">PM Activities</h1><p className="dsr-subtitle">Paste the shift/PM message. AI separates each maintenance job into a reviewable activity table before anything is stored.</p></div></div>
  {user&&<section className="mechanical-panel overflow-hidden"><div className="dsr-panel-head"><div><div className="section-title">Import maintenance message</div><div className="helper-text">Stand changes, couplers, pivots, entry guides, bearings, seals, inspections and other work.</div></div></div><div className="p-3"><textarea className="input-class min-h-[110px]" value={msg} onChange={e=>setMsg(e.target.value)} placeholder={"21/09/2026 B shift W1\nStand 8 changed 8.1 to 8C due leakage\nP6 coupler changed\nP4 pivot changed\nEntry guide 10 replaced"}/><div className="mt-3 flex items-center gap-2"><button className="dsr-btn-primary" disabled={busy||!msg.trim()} onClick={analyse}>{busy?"Analysing…":"Analyse message"}</button>{provider&&<span className="dsr-chip">{provider}</span>}<span className="helper-text">Preview only until Confirm.</span></div></div></section>}

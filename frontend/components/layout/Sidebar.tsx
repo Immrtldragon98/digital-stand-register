@@ -15,12 +15,13 @@ export default function Sidebar(){
   {name:"Home",href:"/dashboard",icon:Home},
   {name:"Stand Area",href:"/stand-area",icon:Factory},
   {name:"Stand Change",href:"/operations",icon:Wrench},
+  {name:"Mill Runtime",href:"/runtime",icon:CalendarDays},
   {name:"PM Activities",href:"/pm-schedule",icon:CalendarDays},
   {name:"Spares",href:"/inventory",icon:Package},
   {name:"History",href:"/activity",icon:History},
   {name:"Intelligence",href:"/intelligence",icon:BrainCircuit}
  ];
- const manage=[{name:"Entry Guides",href:"/entry-guides",icon:Settings2},{name:"Reports",href:"/reports",icon:FileText},...(user?[{name:"Import Report",href:"/import-report",icon:ClipboardPaste},{name:"Historical Data",href:"/historical-import",icon:Database}]:[]),...(isAdmin(user)?[{name:"System Status",href:"/system-status",icon:ServerCog},{name:"Users",href:"/users",icon:Users}]:[])];
+ const manage=[{name:"Component Assets",href:"/components",icon:Settings2},{name:"Entry Guides",href:"/entry-guides",icon:Settings2},{name:"Reports",href:"/reports",icon:FileText},...(user?[{name:"Import Report",href:"/import-report",icon:ClipboardPaste},{name:"Historical Data",href:"/historical-import",icon:Database}]:[]),...(isAdmin(user)?[{name:"System Status",href:"/system-status",icon:ServerCog},{name:"Users",href:"/users",icon:Users}]:[])];
  const active=(href:string)=>pathname===href||(href==="/intelligence"&&pathname==="/investigation");
  const item=(i:any)=>{const I=i.icon;const isActive=active(i.href);return <Link key={i.href} href={i.href} aria-current={isActive?"page":undefined} className={`nav-item ${isActive?"nav-item-active":""}`}><I className={`w-4 h-4 shrink-0 ${isActive?"text-[#4EA1FF]":"text-slate-500"}`}/><span>{i.name}</span></Link>};
  const logout=()=>{clearSession();setUser(null);router.push("/dashboard")};

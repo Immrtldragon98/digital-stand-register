@@ -72,7 +72,8 @@ def test_removal_returns_stand_to_pending_and_closes_campaign(db):
     assert stand.current_status == StatusEnum.PENDING
     assert stand.current_location == LocationEnum.WIP
     assert stand.current_position_id is None
-    assert stand.lifetime_hours >= 5
+    assert stand.lifetime_hours == 0
+    assert db.query(StandInstallation).one().campaign_hours is None
     assert db.query(StandInstallation).one().removed_at is not None
 
 

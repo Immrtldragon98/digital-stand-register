@@ -16,3 +16,7 @@ from app.models.stand_component import StandComponentType, StandComponentPrepara
 from app.models.stand_event import StandCampaignEvent
 from app.models.pm_activity import PMActivity
 from app.models.spare_life_record import SpareLifeRecord
+
+from app.models.component_asset import ComponentAsset, ComponentFitting, PreparationAssetSelection
+from app.models.line_runtime import LineRuntimeEvent
+from app.models.command_receipt import CommandReceipt
