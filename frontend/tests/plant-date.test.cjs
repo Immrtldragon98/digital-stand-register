@@ -1,0 +1,3 @@
+const {test}=require('node:test');const assert=require('node:assert/strict');const fs=require('node:fs');const vm=require('node:vm');const ts=require('typescript');
+const context={exports:{},Date,Intl};vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/plant-date.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText,context);
+test('PM date follows plant midnight rather than UTC midnight',()=>{assert.equal(context.exports.plantDate(new Date('2026-11-25T18:29:59Z')),'2026-11-25');assert.equal(context.exports.plantDate(new Date('2026-11-25T18:30:00Z')),'2026-11-26');});
