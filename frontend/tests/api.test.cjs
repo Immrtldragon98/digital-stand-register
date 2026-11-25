@@ -4,10 +4,10 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const ts = require('typescript');
 
-function client(fetch) {
+function client(fetch, getToken = () => 'operator-token') {
   const timers = new Map();
   const context = {
-    exports: {}, require: () => ({ getToken: () => 'operator-token' }),
+    exports: {}, require: () => ({ getToken }),
     process: { env: {} }, fetch, Response, FormData, AbortController, Date,
     setTimeout(callback, delay) { const id = {}; timers.set(id, { callback, delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
@@ -132,4 +132,27 @@ test('authorization failures are not retried and binary downloads remain support
   await assert.rejects(api.fetchApi('/private'), /Sign in/);
   assert.equal(calls, 1);
   assert.equal(await (await api.fetchApi('/report.xlsx')).text(), 'spreadsheet');
+});
+
+test('a late read cannot repopulate cache after a successful write', async () => {
+  let resolveFirst, reads=0;
+  const api=client(async(url,options)=>{
+    if(options.method==='POST')return json({saved:true});
+    reads++;
+    if(reads===1)return new Promise(resolve=>{resolveFirst=resolve;});
+    return json({version:2});
+  });
+  const old=api.fetchApi('/dashboard/');
+  await api.fetchApi('/write',{method:'POST',body:'{}'});
+  resolveFirst(json({version:1}));await old;
+  assert.equal((await api.fetchApi('/dashboard/')).version,2);
+});
+
+test('protected read cache is isolated when the signed-in token changes', async () => {
+  let token='first',calls=0;
+  const api=client(async(url,options)=>{calls++;return json({account:options.headers.Authorization});},()=>token);
+  assert.equal((await api.fetchApi('/auth/me')).account,'Bearer first');
+  token='second';
+  assert.equal((await api.fetchApi('/auth/me')).account,'Bearer second');
+  assert.equal(calls,2);
 });

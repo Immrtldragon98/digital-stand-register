@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
+from app.services.evidence_service import bounded_rows, merge_intervals, in_intervals
 from app.models.line import Line
 from app.models.reliability_history import HistoricalCampaign, HistoricalSpareUsage, ProcessObservation
 from app.models.stand_event import StandCampaignEvent
@@ -85,24 +86,27 @@ def _live_events(db: Session, line: str, position: int):
 
 @router.get("/position")
 def investigate_position(
-    line: str = Query(..., pattern="^W[123]$"),
+    line: str = Query(..., min_length=1, max_length=50),
     position: int = Query(..., ge=1, le=10),
     db: Session = Depends(get_db),
 ):
+    line = line.strip().upper()
     live_events = _live_events(db, line, position)
     event_types = Counter((e["event_type"] or "UNSPECIFIED").strip().upper() for e in live_events)
     event_components = Counter((e["component_name"] or "").strip() for e in live_events if e.get("component_name"))
     stoppages = sum(1 for e in live_events if e["severity"] == "STOPPAGE")
     downtime_minutes = round(sum(float(e.get("duration_minutes") or 0) for e in live_events), 1)
 
-    campaigns = db.query(HistoricalCampaign).filter(
+    campaigns, campaigns_truncated = bounded_rows(db.query(HistoricalCampaign).filter(
         HistoricalCampaign.line_name == line,
         HistoricalCampaign.position_number == position,
         HistoricalCampaign.life_days.isnot(None),
-    ).order_by(HistoricalCampaign.installed_date.desc()).all()
+    ).order_by(HistoricalCampaign.installed_date.desc(), HistoricalCampaign.id.desc()))
     valid = [c for c in campaigns if c.life_days is not None and c.life_days > 0]
     event_summary = {
         "count": len(live_events),
+        "limited_to": 50,
+        "may_be_truncated": len(live_events) == 50,
         "stoppages": stoppages,
         "downtime_minutes": downtime_minutes,
         "top_types": [{"event": k, "count": v} for k, v in event_types.most_common(8)],
@@ -114,6 +118,8 @@ def investigate_position(
             "line": line,
             "position": position,
             "campaigns": 0,
+            "life_basis": "INFERRED_SNAPSHOT_ELAPSED_DAYS",
+            "history_truncated": {"campaigns": campaigns_truncated},
             "message": "No measurable historical campaigns imported for this position yet.",
             "timeline": [],
             "causes": [],
@@ -164,7 +170,8 @@ def investigate_position(
         })
     stand_codes.sort(key=lambda x: (x["avg_days"] if x["avg_days"] is not None else 999999, -x["campaigns"]))
 
-    spare_rows = db.query(HistoricalSpareUsage).all()
+    early_windows = merge_intervals(early_windows)
+    spare_rows, spares_truncated = bounded_rows(db.query(HistoricalSpareUsage).order_by(HistoricalSpareUsage.usage_date.desc(), HistoricalSpareUsage.id.desc()))
     nearby_spares = defaultdict(float)
     matched_spare_days = set()
     for s in spare_rows:
@@ -178,7 +185,7 @@ def investigate_position(
         key=lambda x: x["quantity"], reverse=True,
     )[:15]
 
-    all_process = db.query(ProcessObservation).filter(ProcessObservation.line_name == line).all()
+    all_process, process_truncated = bounded_rows(db.query(ProcessObservation).filter(ProcessObservation.line_name == line).order_by(ProcessObservation.observation_date.desc(), ProcessObservation.id.desc()))
     early_process = []
     for o in all_process:
         if any(start <= o.observation_date <= end for start, end in early_windows):
@@ -205,6 +212,8 @@ def investigate_position(
         "line": line,
         "position": position,
         "campaigns": len(valid),
+        "life_basis": "INFERRED_SNAPSHOT_ELAPSED_DAYS",
+        "history_truncated": {"campaigns": campaigns_truncated, "spares": spares_truncated, "process": process_truncated},
         "avg_days": _avg(lives),
         "median_days": _med(lives),
         "min_days": round(min(lives), 2),
@@ -219,5 +228,5 @@ def investigate_position(
         "process": process_results,
         "live_events": live_events,
         "event_summary": event_summary,
-        "method_note": "Live campaign events are exact records linked to stand installations. Imported stand history, spare usage and process parameters remain separate evidence streams. Date alignment is screening evidence, not confirmed root cause.",
+        "method_note": "Historical life is inferred elapsed days, not measured mill runtime. Analytics uses latest 20,000 rows per stream; truncation flags disclose excluded history. Live campaign events are exact records linked to stand installations. Imported stand history, spare usage and process parameters remain separate evidence streams. Date alignment is screening evidence, not confirmed root cause.",
     }

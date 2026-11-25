@@ -1,5 +1,5 @@
 export function runtimeHours(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "Not recorded";
+  if (value === null || value === undefined || value === "" || typeof value === "boolean") return "Not recorded";
   const hours = Number(value);
   if (!Number.isFinite(hours) || hours < 0) return "Not recorded";
   return `${hours.toLocaleString("en-IN", {maximumFractionDigits: 1})} h`;

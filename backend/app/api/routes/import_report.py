@@ -6,6 +6,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Header
 from typing import Annotated, Literal
@@ -268,7 +269,7 @@ def _parse_changed_at(action: dict):
         return None, "Time is required for a dated stand change."
     for fmt in ("%d/%m/%Y %H:%M", "%d/%m/%y %H:%M", "%d-%m-%Y %H:%M", "%d-%m-%y %H:%M"):
         try:
-            return datetime.strptime(f"{date} {time}", fmt), None
+            return datetime.strptime(f"{date} {time}", fmt).replace(tzinfo=ZoneInfo("Asia/Kolkata")), None
         except ValueError:
             pass
     return None, "Date/time format not recognised. Use DD/MM/YYYY and HH:MM."
@@ -358,11 +359,11 @@ def analyse_report(payload: ReportInput, user: User = Depends(require_operator))
         model = parsed.pop("model", None)
         parsed["actions"] = [ReportAction.model_validate(a).model_dump() for a in parsed.get("actions", [])[:100]]
     except Exception as exc:
-        ai_error = str(exc)
-        logger.warning("Gemini unavailable; fallback parser used: %s", ai_error)
+        ai_error = type(exc).__name__
+        logger.warning("Gemini unavailable; fallback parser used (%s)", ai_error)
         provider = "template-parser"
         parsed = template_parse(text)
-        parsed["warnings"].append(f"AI unavailable ({ai_error}); used free template parser instead.")
+        parsed["warnings"].append(f"AI unavailable; used free template parser instead.")
     return {"provider": provider, "model": model, "analysed_by": user.username, "actions": parsed.get("actions", []), "warnings": parsed.get("warnings", []), "message": "Preview only. No plant data has been changed."}
 
 

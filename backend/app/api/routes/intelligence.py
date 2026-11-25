@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
+from app.models.line import Line
+from app.services.evidence_service import bounded_rows, merge_intervals, in_intervals
 from app.models.reliability_history import HistoricalCampaign, HistoricalSpareUsage, ProcessObservation
 
 router = APIRouter()
@@ -49,15 +51,16 @@ def _safe_median(values):
 
 @router.get("/summary")
 def intelligence_summary(db: Session = Depends(get_db)):
-    campaigns = db.query(HistoricalCampaign).filter(HistoricalCampaign.life_days.isnot(None)).all()
-    spares = db.query(HistoricalSpareUsage).all()
-    process = db.query(ProcessObservation).all()
+    campaigns, campaigns_truncated = bounded_rows(db.query(HistoricalCampaign).filter(HistoricalCampaign.life_days.isnot(None)).order_by(HistoricalCampaign.installed_date.desc(), HistoricalCampaign.id.desc()))
+    spares, spares_truncated = bounded_rows(db.query(HistoricalSpareUsage).order_by(HistoricalSpareUsage.usage_date.desc(), HistoricalSpareUsage.id.desc()))
+    process, process_truncated = bounded_rows(db.query(ProcessObservation).order_by(ProcessObservation.observation_date.desc(), ProcessObservation.id.desc()))
 
     # Zero-day entries are snapshot/changeover ambiguity, not a measurable campaign life.
     valid = [c for c in campaigns if c.life_days is not None and c.life_days > 0]
+    line_names = sorted({row.name for row in db.query(Line).limit(1000).all()} | {row.line_name for row in campaigns} | {row.line_name for row in process})
     line_stats = []
     position_stats = []
-    for line in ("W1", "W2", "W3"):
+    for line in line_names:
         lv = [c.life_days for c in valid if c.line_name == line]
         line_stats.append({"line": line, "campaigns": len(lv), "avg_days": _safe_avg(lv), "median_days": _safe_median(lv)})
         for pos in range(1, 11):
@@ -106,21 +109,15 @@ def intelligence_summary(db: Session = Depends(get_db)):
     for p in process:
         process_by_line[p.line_name].append(p)
     process_screen = []
-    for line in ("W1", "W2", "W3"):
+    for line in line_names:
         lc = [c for c in valid if c.line_name == line]
         if not lc or not process_by_line[line]:
             continue
         med = median([c.life_days for c in lc])
-        early_dates = set()
-        for c in lc:
-            if c.life_days <= med * 0.6 and c.installed_date and c.removed_date:
-                from datetime import timedelta
-                d = c.installed_date
-                while d <= c.removed_date:
-                    early_dates.add(d)
-                    d += timedelta(days=1)
+        early_intervals = merge_intervals((c.installed_date, c.removed_date) for c in lc
+            if c.life_days <= med * 0.6 and c.installed_date and c.removed_date)
         all_obs = process_by_line[line]
-        early_obs = [o for o in all_obs if o.observation_date in early_dates]
+        early_obs = [o for o in all_obs if in_intervals(o.observation_date, early_intervals)]
         for field, label in (("casting_speed", "Casting speed"), ("emulsion_temp", "Emulsion temperature")):
             all_vals = [getattr(o, field) for o in all_obs if getattr(o, field) is not None]
             early_vals = [getattr(o, field) for o in early_obs if getattr(o, field) is not None]
@@ -134,6 +131,8 @@ def intelligence_summary(db: Session = Depends(get_db)):
                 })
 
     return {
+        "life_basis": "INFERRED_SNAPSHOT_ELAPSED_DAYS",
+        "history_truncated": {"campaigns": campaigns_truncated, "spares": spares_truncated, "process": process_truncated},
         "data": {"campaigns": len(valid), "spare_usage_rows": len(spares), "process_observations": len(process)},
         "line_stats": line_stats,
         "weak_positions": weak_positions[:10],
@@ -141,5 +140,5 @@ def intelligence_summary(db: Session = Depends(get_db)):
         "repeat_low_life": repeat_low_life[:12],
         "top_spares": top_spares,
         "process_screen": process_screen,
-        "method_note": "Historical campaigns reconstructed from daily snapshots are inferred. Zero-day changeover ambiguity is excluded from life baselines. Process comparisons are correlations for engineering screening, not confirmed causes."
+        "method_note": "Life is inferred snapshot elapsed days, not measured mill runtime. Analytics uses the latest 20,000 rows per stream; truncation flags identify excluded history. Historical campaigns reconstructed from daily snapshots are inferred. Zero-day changeover ambiguity is excluded from life baselines. Process comparisons are correlations for engineering screening, not confirmed causes."
     }

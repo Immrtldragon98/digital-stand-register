@@ -26,7 +26,7 @@ router = APIRouter()
 
 class CreateStandSchema(BaseModel):
     code: str = Field(min_length=1, max_length=50)
-    initial_life_hours: float = Field(default=0, ge=0)
+    initial_life_hours: float = Field(default=0, ge=0, allow_inf_nan=False)
     notes: str | None = Field(default=None, max_length=500)
 
 
@@ -34,7 +34,7 @@ class ComponentItemInput(BaseModel):
     component_type_id: int
     new_qty: int = Field(default=0, ge=0)
     reused_qty: int = Field(default=0, ge=0)
-    carried_life_hours: float | None = Field(default=None, ge=0)
+    carried_life_hours: float | None = Field(default=None, ge=0, allow_inf_nan=False)
     asset_ids: list[int] = Field(default_factory=list, max_length=100)
 
 
@@ -69,6 +69,7 @@ def _component_payload(db: Session, stand: StandAsset):
     selections = db.query(PreparationAssetSelection).filter_by(preparation_id=latest.id).all() if latest else []
     lifecycle = ComponentLifecycleService(db)
     assets = db.query(ComponentAsset).order_by(ComponentAsset.code).all()
+    lifecycle.preload_assets(assets)
     asset_payloads = [lifecycle.asset_payload(asset, stand.id) for asset in assets]
     inventories = {item.id: item for item in db.query(InventoryItem).all()}
     return {
@@ -313,7 +314,9 @@ def list_component_assets(component_type_id:int|None=None, db:Session=Depends(ge
     if component_type_id is not None:
         query = query.filter_by(component_type_id=component_type_id)
     service = ComponentLifecycleService(db)
-    return [service.asset_payload(asset) for asset in query.order_by(ComponentAsset.code).limit(2000).all()]
+    assets = query.order_by(ComponentAsset.code).limit(2000).all()
+    service.preload_assets(assets)
+    return [service.asset_payload(asset) for asset in assets]
 
 
 @router.post('/component-assets',status_code=201)
@@ -337,6 +340,25 @@ def create_component_asset(payload:ComponentAssetInput, db:Session=Depends(get_d
         db.rollback()
         raise HTTPException(409, 'Component identity already exists.') from exc
     return ComponentLifecycleService(db).asset_payload(asset)
+
+
+class ReturnComponentsInput(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+@router.post('/{stand_id}/components/return')
+def return_stand_components(stand_id:int, payload:ReturnComponentsInput, db:Session=Depends(get_db), user:User=Depends(require_operator)):
+    stand = db.query(StandAsset).filter_by(id=stand_id).with_for_update().first()
+    if stand is None:
+        raise HTTPException(404, 'Stand not found.')
+    if not payload.reason.strip():
+        raise HTTPException(400, 'Dismantling reason is required.')
+    now = datetime.utcnow()
+    result = ComponentLifecycleService(db).return_components(stand, now)
+    db.add(ActivityLog(user_id=user.id,action='RETURN_COMPONENTS',timestamp=now,
+        details=f'Stand {stand.code}: {result["returned"]} component identities returned; reason {payload.reason.strip()}'))
+    db.commit()
+    return result
 
 
 @router.get("/{stand_id}")

@@ -6,3 +6,5 @@ export function confirmationKey(scope:string, body:string){
  if(keys.size>=20)keys.delete(keys.keys().next().value!);
  keys.set(signature,key);return key;
 }
+
+export function forgetConfirmationKey(scope:string,body:string){keys.delete(`${scope}:${body}`);}

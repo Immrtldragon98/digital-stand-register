@@ -8,10 +8,10 @@ class InventoryBase(BaseModel):
     minimum_quantity: int = Field(default=0, ge=0)
     location: str = Field(default="Store", min_length=1, max_length=150)
     remarks: str | None = None
-    expected_life_hours: float | None = Field(default=None, ge=0)
-    observed_avg_life_hours: float | None = Field(default=None, ge=0)
-    reliability_pct: float | None = Field(default=None, ge=0)
-    availability_pct: float | None = Field(default=None, ge=0, le=100)
+    expected_life_hours: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    observed_avg_life_hours: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    reliability_pct: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    availability_pct: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
     criticality: str = Field(default="MEDIUM", min_length=1, max_length=20)
     used_at: str | None = Field(default=None, max_length=150)
 
@@ -25,10 +25,10 @@ class InventoryUpdate(BaseModel):
     minimum_quantity: int | None = Field(default=None, ge=0)
     location: str | None = Field(default=None, min_length=1, max_length=150)
     remarks: str | None = None
-    expected_life_hours: float | None = Field(default=None, ge=0)
-    observed_avg_life_hours: float | None = Field(default=None, ge=0)
-    reliability_pct: float | None = Field(default=None, ge=0)
-    availability_pct: float | None = Field(default=None, ge=0, le=100)
+    expected_life_hours: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    observed_avg_life_hours: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    reliability_pct: float | None = Field(default=None, ge=0, allow_inf_nan=False)
+    availability_pct: float | None = Field(default=None, ge=0, le=100, allow_inf_nan=False)
     criticality: str | None = Field(default=None, min_length=1, max_length=20)
     used_at: str | None = Field(default=None, max_length=150)
 

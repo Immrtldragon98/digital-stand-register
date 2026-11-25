@@ -12,31 +12,27 @@ from app.auth.dependencies import require_operator, require_admin
 from app.database.session import get_db
 from app.models.pm_activity import PMActivity
 from app.models.user import User
-from app.models.line import Line
-from app.models.stand_position import Position
-from app.schemas.operation import ChangeStandSchema
-from app.services.operation_service import OperationService
 router=APIRouter()
 STATUSES={"PLANNED","DUE","COMPLETED","DEFERRED"}
 TYPES={"STAND_CHANGE","COUPLER_CHANGE","PIVOT_CHANGE","ENTRY_GUIDE","BEARING","OIL_SEAL","LUBRICATION","INSPECTION","ADJUSTMENT","BREAKDOWN","OTHER"}
 
 class PMInput(BaseModel):
     planned_date: date
-    line_name: str|None=None
-    shift: str|None=None
-    position_number: int|None=None
-    stand_code: str|None=None
+    line_name: str|None=Field(default=None,max_length=50)
+    shift: str|None=Field(default=None,max_length=8)
+    position_number: int|None=Field(default=None,ge=1,le=10)
+    stand_code: str|None=Field(default=None,max_length=50)
     equipment: str=Field(min_length=1,max_length=120)
-    component: str|None=None
+    component: str|None=Field(default=None,max_length=100)
     activity_type: str="OTHER"
     activity: str=Field(min_length=1,max_length=255)
-    from_value: str|None=None
-    to_value: str|None=None
-    assigned_to: str|None=None
+    from_value: str|None=Field(default=None,max_length=100)
+    to_value: str|None=Field(default=None,max_length=100)
+    assigned_to: str|None=Field(default=None,max_length=100)
     status: str="COMPLETED"
     completed_date: date|None=None
-    remarks: str|None=None
-    source_text: str|None=None
+    remarks: str|None=Field(default=None,max_length=2000)
+    source_text: str|None=Field(default=None,max_length=20000)
 class MessageInput(BaseModel): text:str=Field(min_length=1,max_length=20000)
 class ConfirmInput(BaseModel): activities:list[dict]=Field(min_length=1,max_length=100); source_text:str|None=Field(default=None,max_length=20000)
 
@@ -121,6 +117,8 @@ def analyse_message(p:MessageInput,user:User=Depends(require_operator)):
 
 def _check_backdate(payload, user):
     today=datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    if payload.status.strip().upper() == "COMPLETED" and (payload.completed_date or payload.planned_date) > today:
+        raise HTTPException(400, "Completed maintenance cannot be dated in the future.")
     if user.role_id != ADMIN_ROLE_ID and (payload.planned_date < today or (payload.completed_date and payload.completed_date < today)):
         raise HTTPException(403, "Only an admin can enter backdated maintenance records.")
 
