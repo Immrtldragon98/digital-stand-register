@@ -1,8 +1,9 @@
 "use client";
 import {useEffect,useMemo,useState} from "react";
 import { confirmationKey } from "@/lib/confirmation-key";
+import {plantDate} from "@/lib/plant-date";
 import Header from "@/components/layout/Header";import {fetchApi} from "@/lib/api";import {getUser} from "@/lib/auth";
-const today=()=>new Date().toISOString().slice(0,10);
+const today=()=>plantDate();
 type Row={id:number;planned_date:string;line_name?:string;shift?:string;position_number?:number;stand_code?:string;equipment:string;component?:string;activity_type?:string;activity:string;from_value?:string;to_value?:string;assigned_to?:string;remarks?:string};
 export default function PMActivities(){
  const[user]=useState(()=>getUser()),[rows,setRows]=useState<Row[]>([]),[month,setMonth]=useState(today().slice(0,7)),[line,setLine]=useState("ALL"),[msg,setMsg]=useState(""),[preview,setPreview]=useState<any[]>([]),[provider,setProvider]=useState(""),[busy,setBusy]=useState(false),[error,setError]=useState("");
