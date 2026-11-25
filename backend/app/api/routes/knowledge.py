@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from openpyxl import load_workbook
 from pypdf import PdfReader
 from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import func, or_
 from fastapi import Query
 from starlette.concurrency import run_in_threadpool
@@ -32,7 +33,7 @@ MAX_EXPANDED = 40 * 1024 * 1024
 def _bounded_join(parts):
     result=[]; total=0
     for count,part in enumerate(parts,1):
-        total+=len(part)
+        total+=len(part)+1
         if count>MAX_ROWS or total>MAX_TEXT: raise HTTPException(413,'Document exceeds text processing limits')
         result.append(part)
     return '\n'.join(result)
@@ -60,19 +61,22 @@ def _extract_text(filename: str, data: bytes) -> str:
 
     if suffix == ".xlsx":
         wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
-        lines = []; total=0; count=0
-        for ws in wb.worksheets:
-            lines.append(f"SHEET: {ws.title}")
-            for row in ws.iter_rows(values_only=True):
-                count+=1
-                if count>MAX_ROWS: raise HTTPException(413,"Spreadsheet row limit exceeded")
-                values = [str(v).strip() if v is not None else "" for v in row]
-                if any(values):
-                    line=" | ".join(values); total+=len(line)
-                    if total>MAX_TEXT: raise HTTPException(413,"Document text exceeds processing limit")
-                    lines.append(line)
-        wb.close()
-        return "\n".join(lines)
+        try:
+            def sheet_lines():
+                count = 0
+                for ws in wb.worksheets:
+                    yield f"SHEET: {ws.title}"
+                    for row in ws.iter_rows(values_only=True):
+                        count += 1
+                        if count > MAX_ROWS:
+                            raise HTTPException(413, "Spreadsheet row limit exceeded")
+                        values = [str(v).strip() if v is not None else "" for v in row]
+                        if any(values):
+                            yield " | ".join(values)
+            return _bounded_join(sheet_lines())
+        finally:
+            wb.close()
+
 
     if suffix == ".pdf":
         reader = PdfReader(io.BytesIO(data))
@@ -133,17 +137,26 @@ def _index_document(category, filename, data, db, username):
     if existing:
         raise HTTPException(409, f"This document is already imported as {existing.filename}")
 
-    text = _extract_text(filename, data)
+    try:
+        text = _extract_text(filename, data)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(400, "Document could not be read. Check the file format.") from None
     chunks = _chunks(text)
     if not chunks:
         raise HTTPException(400, "No readable text was found in the document")
 
     doc = KnowledgeDocument(filename=filename, category=category, content_hash=digest, uploaded_by=username)
     db.add(doc)
-    db.flush()
-    for idx, content in enumerate(chunks):
-        db.add(KnowledgeChunk(document_id=doc.id, chunk_index=idx, content=content))
-    db.commit()
+    try:
+        db.flush()
+        for idx, content in enumerate(chunks):
+            db.add(KnowledgeChunk(document_id=doc.id, chunk_index=idx, content=content))
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(409, "This document was imported concurrently; refresh the document list.") from None
     db.refresh(doc)
     return {"id": doc.id, "filename": doc.filename, "category": doc.category, "chunks": len(chunks), "message": "Document indexed for retrieval"}
 
