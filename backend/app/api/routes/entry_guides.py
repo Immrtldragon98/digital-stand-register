@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import require_operator
+from app.auth.dependencies import require_admin, require_operator
 from app.database.session import get_db
 from app.models.entry_guide_asset import EntryGuideAsset
 from app.models.enums import EntryGuideConditionEnum, LocationEnum, StatusEnum
@@ -81,5 +81,5 @@ def remove_guide(payload: RemoveEntryGuideSchema, db: Session = Depends(get_db),
 
 
 @router.post("/condition")
-def update_guide_condition(payload: UpdateEntryGuideConditionSchema, db: Session = Depends(get_db), user: User = Depends(require_operator)):
+def update_guide_condition(payload: UpdateEntryGuideConditionSchema, db: Session = Depends(get_db), user: User = Depends(require_admin)):
     return EntryGuideService(db).update_condition(payload.guide_code, payload.condition, payload.notes, user.id)

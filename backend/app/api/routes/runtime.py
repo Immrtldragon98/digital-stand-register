@@ -28,7 +28,7 @@ def lines(db:Session=Depends(get_db)):
     return [{'id':line.id,'name':line.name,'state':service.events[line.id][-1].state if service.events[line.id] else 'UNKNOWN',
              'tracking_started_at':service.events[line.id][0].event_at if service.events[line.id] else None,
              'last_event_at':service.events[line.id][-1].event_at if service.events[line.id] else None,
-             'planned_pm_hours_per_month':12,'events':[{'id':e.id,'state':e.state,'event_at':e.event_at,'reason':e.reason,'recorded_by':e.recorded_by} for e in service.events[line.id][-100:]]}
+             'planned_pm_hours_per_month':12,'event_count':len(service.events[line.id]),'history_truncated':len(service.events[line.id])>100,'events':[{'id':e.id,'state':e.state,'event_at':e.event_at,'reason':e.reason,'recorded_by':e.recorded_by} for e in service.events[line.id][-100:]]}
             for line in db.query(Line).order_by(Line.id).all()]
 
 @router.post('/lines',status_code=201)
@@ -61,6 +61,7 @@ def set_state(line_id:int,payload:StateInput,db:Session=Depends(get_db),user:Use
 
 @router.patch('/events/{event_id}')
 def correct_event(event_id:int,payload:Correction,db:Session=Depends(get_db),user:User=Depends(require_admin)):
+    if not payload.correction_reason.strip():raise HTTPException(400,'Correction reason is required.')
     row=db.get(LineRuntimeEvent,event_id)
     if not row:raise HTTPException(404,'Runtime event not found.')
     db.query(Line).filter_by(id=row.line_id).with_for_update().one()

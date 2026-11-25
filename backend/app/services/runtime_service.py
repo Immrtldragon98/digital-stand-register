@@ -19,29 +19,31 @@ class RuntimeService:
             self.events[event.line_id].append(event)
         self.positions = {p.id: p.line_id for p in db.query(Position).all()}
         self._times = {line: [utc_naive(e.event_at) for e in rows] for line, rows in self.events.items()}
+        self._prefix = {}
+        for line_id, rows in self.events.items():
+            times = self._times[line_id]
+            prefix = [0.0]
+            for index in range(1, len(rows)):
+                running = (times[index] - times[index-1]).total_seconds()/3600 if rows[index-1].state == 'RUNNING' else 0.0
+                prefix.append(prefix[-1] + running)
+            self._prefix[line_id] = prefix
+
+    def _integral(self, line_id, at):
+        times = self._times.get(line_id, [])
+        index = bisect_right(times, at)-1
+        if index < 0:
+            return 0.0
+        tail = (at-times[index]).total_seconds()/3600 if self.events[line_id][index].state == 'RUNNING' else 0.0
+        return self._prefix[line_id][index] + tail
 
     def measure(self, line_id, start, end=None):
         start, end = utc_naive(start), utc_naive(end or datetime.utcnow())
         elapsed = max(0.0,(end-start).total_seconds()/3600)
         if end < start:
             return dict(hours=None, known_hours=0.0, complete=False, elapsed_hours=0.0)
-        rows = self.events.get(line_id, [])
         times = self._times.get(line_id, [])
-        index = bisect_right(times, start)-1
-        complete = index >= 0
-        known = 0.0
-        if index < 0:
-            index = 0
-            cursor = times[0] if times else end
-        else:
-            cursor = start
-        while index < len(rows) and cursor < end:
-            next_at = times[index+1] if index+1 < len(rows) else end
-            until = min(end,next_at)
-            if rows[index].state == 'RUNNING':
-                known += max(0.0,(until-cursor).total_seconds()/3600)
-            cursor = until
-            index += 1
+        complete = bool(times) and times[0] <= start
+        known = max(0.0, self._integral(line_id,end)-self._integral(line_id,start))
         known = round(known,4)
         return dict(hours=known if complete else None,known_hours=known,complete=complete,elapsed_hours=round(elapsed,4))
 
@@ -55,7 +57,9 @@ class RuntimeService:
             installations = self.db.query(StandInstallation).filter_by(stand_id=stand.id).all()
         readings = [self.installation(item,now) for item in installations]
         known = round(sum(x['known_hours'] for x in readings),4)
-        # Legacy lifetime may include service before available installation history.
-        complete = bool(readings) and all(x['complete'] for x in readings) and not (stand.lifetime_hours or 0)
-        return dict(lifetime_hours=known if complete else None, measured_lifetime_hours=known,
-                    lifetime_complete=complete,legacy_lifetime_hours=stand.lifetime_hours)
+        # A legacy zero is not evidence of a known-zero pre-register lifetime.
+        # Existing stand/guide baselines were not verified during import.
+        history_complete = bool(readings) and all(x['complete'] for x in readings)
+        return dict(lifetime_hours=None, measured_lifetime_hours=known,
+                    lifetime_complete=False, measured_history_complete=history_complete,
+                    legacy_lifetime_hours=stand.lifetime_hours)

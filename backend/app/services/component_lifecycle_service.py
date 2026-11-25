@@ -18,9 +18,11 @@ class ComponentLifecycleService:
         self._fittings = None
         self._installations = None
         self._positions = None
+        self._loaded_assets = set()
 
     def preload_assets(self, assets):
         asset_ids = [asset.id for asset in assets]
+        self._loaded_assets = set(asset_ids)
         fittings = self.db.query(ComponentFitting).filter(ComponentFitting.asset_id.in_(asset_ids)).all()
         self._fittings = {}
         for fitting in fittings:
@@ -36,7 +38,7 @@ class ComponentLifecycleService:
         at = at or datetime.utcnow()
         known = 0.0
         complete = asset.prior_life_hours is not None
-        if self._fittings is None:
+        if self._fittings is None or asset.id not in self._loaded_assets:
             self.preload_assets([asset])
         fittings = self._fittings.get(asset.id, [])
         for fitting in fittings:
@@ -60,19 +62,41 @@ class ComponentLifecycleService:
                 'prior_life_hours': asset.prior_life_hours}
 
     def asset_payload(self, asset, stand_id=None):
-        if self._fittings is None:
+        if self._fittings is None or asset.id not in self._loaded_assets:
             self.preload_assets([asset])
         fitting = next((f for f in self._fittings.get(asset.id, []) if f.removed_at is None), None)
         return {'id': asset.id, 'code': asset.code, 'component_type_id': asset.component_type_id,
                 'condition': asset.condition, 'current_stand_id': fitting.stand_id if fitting else None,
                 'available': fitting is None or fitting.stand_id == stand_id, **self.asset_life(asset)}
 
+    def return_components(self, stand, at):
+        # Caller holds the stand lock and commits this action and audit together.
+        if stand.current_position_id is not None or stand.current_status.value == 'INSTALLED':
+            raise HTTPException(400, 'Remove the stand from the mill before dismantling components.')
+        current = self.db.query(ComponentFitting).filter_by(stand_id=stand.id, removed_at=None).all()
+        if not current:
+            raise HTTPException(409, 'No fitted component identities to return.')
+        # Match finalization's asset-before-fitting lock order to avoid deadlocks.
+        asset_ids = sorted({fitting.asset_id for fitting in current})
+        assets = self.db.query(ComponentAsset).filter(ComponentAsset.id.in_(asset_ids)).order_by(ComponentAsset.id).with_for_update().all()
+        fittings = self.db.query(ComponentFitting).filter_by(stand_id=stand.id, removed_at=None).with_for_update().all()
+        for fitting in fittings:
+            fitting.removed_at = at
+        for asset in assets:
+            asset.condition = 'REUSED'
+        from app.models.enums import StatusEnum, LocationEnum
+        stand.current_status = StatusEnum.PENDING
+        stand.current_location = LocationEnum.WIP
+        self.db.flush()
+        self._loaded_assets.clear()
+        return {'returned':len(fittings),'new_stock_added':0,'stand_status':'PENDING'}
+
     def finalize_preparation(self, stand, at, operator):
         # Caller already locks stand and owns the transaction. No commit here.
         prep = self.db.query(StandComponentPreparation).filter_by(stand_id=stand.id, finalized_at=None).order_by(
             StandComponentPreparation.created_at.desc(), StandComponentPreparation.id.desc()).with_for_update().first()
         if prep is None:
-            return {'issued': 0, 'fitted': 0}
+            raise HTTPException(400, 'Save component identities or explicitly skip tracking with a reason before Gauging.')
         if prep.state == 'SKIPPED':
             if not (prep.notes or '').strip():
                 raise HTTPException(400, 'Skipping component tracking requires a reason.')
