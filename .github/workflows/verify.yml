@@ -38,7 +38,7 @@ jobs:
       - run: python -m compileall -q backend/app backend/scripts
       - run: python -m pytest -q --ignore=tests/postgres
         working-directory: backend
-      - run: scripts/test-postgres.sh
+      - run: bash scripts/test-postgres.sh
   frontend:
     runs-on: ubuntu-latest
     steps:
