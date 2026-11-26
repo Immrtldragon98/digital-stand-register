@@ -173,7 +173,7 @@ def ask_intelligence(payload: IntelligenceQuestion, db: Session = Depends(get_db
     from app.services.spare_life_service import life_summaries, life_summary
     from app.services.plant_value_service import PlantValueService
     items = None
-    if re.search(r'STOCK|SPARE|COMPONENT|BEARING|SEAL|SLEEVE|BALANCE|SHORTAGE|AVAILABLE|AVAILABILITY|QUANTITY|QUANTITIES', query.upper()):
+    if re.search(r'STOCK|SPARE|COMPONENT|BEARING|SEAL|SLEEVE|BALANCE|SHORTAGE|AVAILABLE|AVAILABILITY|QUANTITY|QUANTITIES|HOW MANY|DO WE HAVE|IN STORE', query.upper()):
         summaries = life_summaries(db)
         items = [{'id': row.id, 'name': row.name, 'quantity': row.quantity, 'minimum': row.minimum_quantity,
                   **life_summary(row, summaries)} for row in db.query(InventoryItem).filter(InventoryItem.is_active.is_(True)).order_by(InventoryItem.name).all()]

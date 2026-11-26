@@ -11,7 +11,7 @@ def resolve_scope(question, context, insights):
     line, position, codes = question_scope(question, lines, stands)
     # A new explicit scope replaces the old one. Broad questions clear context.
     broad = bool(re.search(r'\b(ALL LINES|PLANT.WIDE|OVERALL|EVERY LINE|ACROSS LINES)\b', question.upper()))
-    if context and re.match(r'^(?:WHAT ABOUT|HOW ABOUT|AND)(?:\s|[?])', question.upper()):
+    if context and re.match(r'^(?:WHAT ABOUT|HOW ABOUT|AND)(?:\s|[?])', question.upper()) and not re.search(r'STOCK|SPARE|RUNTIME|PREPARATION|INVESTIGATION|BEARING|SEAL|SLEEVE', question.upper()):
         topic = {'LONGEST_CURRENT': 'Which stand is installed longest?', 'COMPLETED_STAND_COMPARISON': 'Compare completed stand life', 'WEAK_POSITIONS': 'Which positions are weak?', 'INVESTIGATION': 'Investigate recorded reasons', 'RUNTIME_STATUS': 'What is the running state?'} .get(context.get('topic'))
         if topic:
             question = topic + ' ' + question
@@ -33,19 +33,20 @@ def duration(hours):
 
 def item_matches(question, items):
     """Match registered item-name words; never silently broaden a named stock query."""
-    stop = set('what which is are the a an of for me show tell current stock spare spares balance balances available availability quantity quantities do we have how much many any low shortage shortages below minimum life average avg compare please recorded status check list us s all lines plant wide overall'.split())
+    stop = set('what which is are the a an of for me show tell current stock spare spares balance balances available availability quantity quantities do we have how much many any low shortage shortages below minimum life average avg compare please recorded status check list us s all lines plant wide overall about store'.split())
     question = re.sub(r'\b(?:at|in|on|line|position)\b|\bW(?:RM)?\s*#?\s*\d+\b|\bP\d+\b', ' ', question, flags=re.I)
     words = set(re.findall(r'[a-z0-9]+', question.lower())) - stop
     if not words:
         return items
-    return [r for r in items if words & set(re.findall(r'[a-z0-9]+', r['name'].lower()))]
+    normalize = lambda tokens: {w[:-1] if len(w) > 3 and w.endswith('s') else w for w in tokens}
+    return [r for r in items if normalize(words) & normalize(re.findall(r'[a-z0-9]+', r['name'].lower()))]
 
 
 def enhanced_answer(question, insights, history, *, scope=None, plant=None, items=None):
     upper = question.upper()
     answer = answer_from_evidence(question, insights, history)
     answer.update(scope=scope, facts=[], hypotheses=[], missing_evidence=[], next_actions=[], links=[])
-    stock_request = bool(re.search(r'\b(STOCK|BALANCE|SHORTAGE|AVAILABLE|AVAILABILITY|QUANTIT(?:Y|IES))\b', upper))
+    stock_request = bool(re.search(r'\b(STOCK|BALANCE|SHORTAGE|AVAILABLE|AVAILABILITY|QUANTIT(?:Y|IES)|HOW MANY|DO WE HAVE|IN STORE)\b', upper))
     spare_life = bool(re.search(r'\b(SPARE|COMPONENT|BEARING|SEAL|SLEEVE)S?\b', upper) and re.search(r'\b(LIFE|AVERAGE|AVG)\b', upper))
     runtime_request = bool(re.search(r'\b(UNKNOWN|RUNTIME|RUNNING|STOPPED|STATE)\b', upper)) and not re.search(r'LONGEST|BETTER|WEAK|LIFE|MORE TIME|LONGER|MOST', upper)
     value_request = bool(re.search(r'PREPARATION TIME|PREPARATION TAK|INVESTIGATION (TIME|EFFORT)|SAVINGS|MAINTENANCE VALUE', upper))

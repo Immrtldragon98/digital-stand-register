@@ -19,6 +19,8 @@ def test_current_stock_preserves_zero_unknown_and_ignores_inactive_history():
     assert '999' not in response['answer'] and response['missing_evidence']
     filtered = enhanced_answer('Current stock bearing at W1 P7', insights(), {}, items=items)
     assert [r['label'] for r in filtered['facts']] == ['Bearing']
+    natural = enhanced_answer('How many bearings do we have?', insights(), {}, items=items)
+    assert natural['intent'] == 'CURRENT_STOCK' and natural['facts'][0]['label'] == 'Bearing'
     absent = enhanced_answer('Current stock gearbox', insights(), {}, items=items)
     assert not absent['facts'] and 'No matching' in absent['answer']
 
