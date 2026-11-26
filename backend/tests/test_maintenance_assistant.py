@@ -94,3 +94,11 @@ def test_staging_allows_read_only_questions_but_blocks_all_record_changes(monkey
         finally:
             app.dependency_overrides.pop(get_db,None)
     engine.dispose()
+
+
+def test_registered_line_name_is_not_shortened_to_an_embedded_w_number():
+    from app.services.intelligence_answer_service import question_scope
+    assert question_scope('Investigate DEMO-W1 P1', ['DEMO-W1'])[:2] == ('DEMO-W1', 1)
+    data = {'ongoing':[{'line':'DEMO-W1','position':1,'stand':'DEMO-1-1A'}]}
+    query, scope = resolve_scope('Investigate DEMO-W1 P1', None, data)
+    assert scope == {'line':'DEMO-W1','position':1}

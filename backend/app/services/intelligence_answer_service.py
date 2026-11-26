@@ -13,11 +13,11 @@ def question_scope(question, known_lines=None, known_stands=None):
         if re.search(r'\bSTAND\s*[-:#]?\s*' + re.escape(code.upper()) + r'(?![A-Z0-9._-])', upper):
             stands.add(code)
     line_name = 'W' + line.group(1) if line else None
-    if line_name is None:
-        for name in sorted(known_lines or [], key=len, reverse=True):
-            if len(name) > 1 and re.search(r'(?<![A-Z0-9])' + re.escape(name.upper()) + r'(?![A-Z0-9])', upper):
-                line_name = name
-                break
+    # Registered topology names take precedence over a W-number inside a name.
+    for name in sorted(known_lines or [], key=len, reverse=True):
+        if len(name) > 1 and re.search(r'(?<![A-Z0-9])' + re.escape(name.upper()) + r'(?![A-Z0-9])', upper):
+            line_name = name
+            break
     return line_name, int(position.group(1)) if position else None, stands
 
 
