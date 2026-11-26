@@ -1,5 +1,6 @@
 from collections import Counter, defaultdict
 from statistics import mean, median
+from typing import Literal
 from app.services.life_insight_service import dedupe_completed_campaigns, completed_comparisons
 
 from fastapi import APIRouter, Depends
@@ -144,8 +145,15 @@ def intelligence_summary(db: Session = Depends(get_db)):
     }
 
 
+class AssistantScope(BaseModel):
+    line: str = Field(min_length=1, max_length=50)
+    position: int | None = Field(default=None, ge=1, le=10)
+    topic: Literal["LONGEST_CURRENT", "COMPLETED_STAND_COMPARISON", "WEAK_POSITIONS", "INVESTIGATION", "RUNTIME_STATUS", "CURRENT_STOCK", "SPARE_LIFE", "MAINTENANCE_VALUE", "HELP", "SPARE_USAGE"] | None = None
+
+
 class IntelligenceQuestion(BaseModel):
     question: str = Field(min_length=1, max_length=1000)
+    context: AssistantScope | None = None
 
 
 @router.post("/ask")
@@ -154,8 +162,22 @@ def ask_intelligence(payload: IntelligenceQuestion, db: Session = Depends(get_db
     from app.services.life_insight_service import LifeInsightService
     insights = LifeInsightService(db).summary()
     history = intelligence_summary(db)
-    line, position, _ = question_scope(payload.question, {row['line'] for row in insights.get('ongoing', []) if row.get('line')})
+    from app.services.maintenance_assistant_service import resolve_scope, enhanced_answer
+    query, scope = resolve_scope(payload.question.strip(), payload.context.model_dump() if payload.context else None, insights)
+    line, position = (scope['line'], scope['position']) if scope else (None, None)
     if line and position is not None:
         from app.api.routes.investigation import investigate_position
         history['position_investigation'] = investigate_position(line, position, db)
-    return answer_from_evidence(payload.question.strip(), insights, history)
+    import re
+    from app.models.inventory_item import InventoryItem
+    from app.services.spare_life_service import life_summaries, life_summary
+    from app.services.plant_value_service import PlantValueService
+    items = None
+    if re.search(r'STOCK|SPARE|COMPONENT|BEARING|SEAL|SLEEVE|BALANCE|SHORTAGE|AVAILABLE|AVAILABILITY|QUANTITY|QUANTITIES', query.upper()):
+        summaries = life_summaries(db)
+        items = [{'id': row.id, 'name': row.name, 'quantity': row.quantity, 'minimum': row.minimum_quantity,
+                  **life_summary(row, summaries)} for row in db.query(InventoryItem).filter(InventoryItem.is_active.is_(True)).order_by(InventoryItem.name).all()]
+    plant = None
+    if re.search(r'UNKNOWN|RUNTIME|RUNNING|STOPPED|STATE|PREPARATION|INVESTIGATION (TIME|EFFORT)|SAVINGS|MAINTENANCE VALUE', query.upper()):
+        plant = PlantValueService(db).summary()
+    return enhanced_answer(query, insights, history, scope=scope, plant=plant, items=items)

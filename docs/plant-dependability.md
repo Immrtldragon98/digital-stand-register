@@ -10,7 +10,7 @@ Neon returned “backup schedule creation is not enabled for this project” whe
 
 ## Staging boundary
 
-Staging uses a separate Neon branch and a fresh database named `dsr_staging`, not its inherited production database. `DSR_ENVIRONMENT=staging` refuses unsafe database names before migrations. Only synthetic DEMO fixtures are seeded; staging rejects all mutations and carries a persistent read-only banner. Use branch `staging` for staging deployment and promote the tested commit to `main` after CI and staging checks.
+Staging uses a separate Neon branch and a fresh database named `dsr_staging`, not its inherited production database. `DSR_ENVIRONMENT=staging` refuses unsafe database names before migrations. Only synthetic DEMO fixtures are seeded; staging rejects all mutations (the POST `/intelligence/ask` endpoint is a read-only evidence query and is permitted) and carries a persistent read-only banner. Use branch `staging` for staging deployment and promote the tested commit to `main` after CI and staging checks.
 
 ## Measurement definitions
 
@@ -28,3 +28,9 @@ Staging uses a separate Neon branch and a fresh database named `dsr_staging`, no
 3. Compare table counts and deterministic content fingerprints. Record the snapshot and verification time.
 4. Deploy and verify the exact candidate on synthetic staging. Test mobile drill-down, navigation history, empty states and read-only rejection.
 5. Promote the tested commit to production. Verify `/ready`, real dashboard data and the new measurement routes. Do not create fabricated plant transactions for smoke testing.
+
+## Maintenance assistant and dashboard cleanup
+
+The maintenance assistant remains deterministic and read-only, with no external model credentials or subscription. It can retain an explicitly shown line/position context, clear scope for plant-wide questions, read current inventory balances and completed spare-life samples, and return evidence, missing records, inspection topics and links. Manual spare-life averages are labelled estimates. It does not mutate runtime, stock or stand records or assert a root cause.
+
+The dashboard retains all line/stand cards. The duplicate position list and decorative line illustration were removed; the selected stand opens below the board. Runtime coverage remains in Maintenance value; the homepage instead shows lines needing a state check. “UNKNOWN” is displayed as “Runtime not recorded,” with a link to the runtime register.
