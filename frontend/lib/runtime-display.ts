@@ -2,7 +2,8 @@ export function runtimeHours(value: unknown): string {
   if ((typeof value !== "number" && typeof value !== "string") || (typeof value === "string" && !value.trim())) return "Not recorded";
   const hours = Number(value);
   if (!Number.isFinite(hours) || hours < 0) return "Not recorded";
-  return `${hours.toLocaleString("en-IN", {maximumFractionDigits: 1})} h`;
+  const wholeHours = Math.floor(hours);
+  return `${Math.floor(wholeHours / 24).toLocaleString("en-IN")}d ${wholeHours % 24}h`;
 }
 export function runtimeLabel(value: unknown, known: unknown, complete: unknown) {
   if (complete === true) return runtimeHours(value);

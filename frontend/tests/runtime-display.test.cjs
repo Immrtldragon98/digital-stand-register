@@ -8,14 +8,15 @@ vm.runInNewContext(ts.transpileModule(fs.readFileSync('lib/runtime-display.ts','
 const {runtimeHours,runtimeLabel,apiDateMs,installationElapsedHours,currentRunLeaders,supportedComparison,comparisonDuration}=context.exports;
 test('unknown and invalid life never becomes measured zero',()=>{
  for(const value of [null,undefined,""," ",false,true,-1,Infinity,NaN])assert.equal(runtimeHours(value),"Not recorded");
- assert.equal(runtimeHours(0),"0 h");assert.equal(runtimeHours(12),"12 h");
+ assert.equal(runtimeHours(0),"0d 0h");assert.equal(runtimeHours(12),"0d 12h");
+ assert.equal(runtimeHours(23.99),"0d 23h");assert.equal(runtimeHours(24),"1d 0h");assert.equal(runtimeHours(173),"7d 5h");
 });
 test('missing runtime records do not display a fabricated zero run',()=>{
- assert.equal(runtimeLabel(null,8,false),"8 h observed · incomplete");
+ assert.equal(runtimeLabel(null,8,false),"0d 8h observed · incomplete");
  assert.equal(runtimeLabel(null,null,false),"Not recorded · runtime history missing");
- assert.equal(runtimeLabel(null,0,false),"0 h observed · incomplete");
+ assert.equal(runtimeLabel(null,0,false),"0d 0h observed · incomplete");
  assert.equal(runtimeLabel(null,8,undefined),"Not recorded");
- assert.equal(runtimeLabel(0,0,true),"0 h");
+ assert.equal(runtimeLabel(0,0,true),"0d 0h");
 });
 const asOf=Date.parse('2026-11-26T12:00:00Z');
 test('naive API installation timestamps are interpreted as UTC',()=>{
@@ -44,7 +45,7 @@ test('measured completed comparisons outrank historical screening without mixing
  const measured={stand:'1A',evidence:'SUFFICIENT',basis:'MEASURED_MILL_RUNTIME_HOURS',median_hours:100,peer_median_hours:80,vs_peer_pct:25};
  const historical={stand:'1B',evidence:'SUFFICIENT',basis:'INFERRED_SNAPSHOT_ELAPSED_DAYS',median_days:10,peer_median_days:5,vs_peer_pct:100};
  assert.equal(supportedComparison([measured],[historical],'better').stand,'1A');
- assert.equal(comparisonDuration(measured),'100 h');assert.equal(comparisonDuration(historical),'10 d elapsed');
+ assert.equal(comparisonDuration(measured),'4d 4h');assert.equal(comparisonDuration(historical),'10 d elapsed');
  assert.equal(supportedComparison([{...measured,evidence:'INSUFFICIENT'}],[historical],'better').stand,'1B');
  assert.equal(supportedComparison([measured],[historical],'weaker'),null);
 });
