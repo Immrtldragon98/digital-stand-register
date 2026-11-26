@@ -25,3 +25,6 @@ api_router.include_router(runtime.router, prefix='/runtime', tags=['Mill Runtime
 
 from app.api.routes import life_insights
 api_router.include_router(life_insights.router, prefix="/intelligence", tags=["Campaign Life Insights"])
+
+from app.api.routes import feedback
+api_router.include_router(feedback.router, prefix="/feedback", tags=["Bugs and Suggestions"])

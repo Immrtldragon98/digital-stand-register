@@ -19,10 +19,11 @@ export default function Sidebar(){
   {name:"PM Activities",href:"/pm-schedule",icon:CalendarDays},
   {name:"Spares",href:"/inventory",icon:Package},
   {name:"History",href:"/activity",icon:History},
-  {name:"Intelligence",href:"/intelligence",icon:BrainCircuit}
+  {name:"Intelligence",href:"/intelligence",icon:BrainCircuit},
+  {name:"Bugs & Suggestions",href:`/feedback?from=${encodeURIComponent(pathname)}`,icon:FileText}
  ];
  const manage=[{name:"Component Assets",href:"/components",icon:Settings2},{name:"Entry Guides",href:"/entry-guides",icon:Settings2},{name:"Reports",href:"/reports",icon:FileText},...(user?[{name:"Import Report",href:"/import-report",icon:ClipboardPaste},{name:"Historical Data",href:"/historical-import",icon:Database}]:[]),...(isAdmin(user)?[{name:"System Status",href:"/system-status",icon:ServerCog},{name:"Users",href:"/users",icon:Users}]:[])];
- const active=(href:string)=>pathname===href||(href==="/intelligence"&&pathname==="/investigation");
+ const active=(href:string)=>pathname===href.split("?")[0]||(href==="/intelligence"&&pathname==="/investigation");
  const item=(i:any)=>{const I=i.icon;const isActive=active(i.href);return <Link key={i.href} href={i.href} aria-current={isActive?"page":undefined} className={`nav-item ${isActive?"nav-item-active":""}`}><I className={`w-4 h-4 shrink-0 ${isActive?"text-[#4EA1FF]":"text-slate-500"}`}/><span>{i.name}</span></Link>};
  const logout=()=>{clearSession();setUser(null);router.push("/dashboard")};
  const panel=<><div><div className="brand-lockup"><div className="brand-mark"><span/></div><div><div className="brand-title">Digital Stand Register</div><div className="brand-subtitle">Finishing Mill</div></div></div><div className="nav-label">Main</div><nav className="space-y-1">{primary.map(item)}</nav><button onClick={()=>setManageOpen(v=>!v)} className="manage-toggle"><span>Manage</span>{manageOpen?<ChevronDown className="w-4 h-4"/>:<ChevronRight className="w-4 h-4"/>}</button>{manageOpen&&<nav className="space-y-1 mt-1">{manage.map(item)}</nav>}</div><div className="sidebar-account">{user?<><div className="px-2 mb-2"><div className="text-sm font-semibold text-slate-100">{user.username}</div><div className="text-xs text-slate-400">{user.role==="ADMIN"?"Administrator":"Operator"}</div></div><button onClick={logout} className="account-action"><LogOut className="w-4 h-4"/>Sign out</button></>:<Link href="/login" className="account-action text-sky-300"><LogIn className="w-4 h-4"/>Sign in to edit</Link>}</div></>;
