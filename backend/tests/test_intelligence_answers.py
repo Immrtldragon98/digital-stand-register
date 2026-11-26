@@ -127,3 +127,17 @@ def test_ask_route_reads_actual_database_and_keeps_unknown_runtime_unknown():
 def test_plain_numeric_and_registered_custom_stand_codes_are_scoped():
     assert question_scope('Which life for stand9?', known_stands=['9'])[2]=={'9'}
     assert question_scope('How long is stand AX-22 installed?', known_stands=['AX-22'])[2]=={'AX-22'}
+
+
+@pytest.mark.parametrize('question', ['Spare life', 'Compare average spare life', 'Lowest spare life', 'Current stock'])
+def test_spare_context_is_not_a_stand_life_comparison(question):
+    result = answer_from_evidence(question, insights(), {'top_spares': [{'spare': 'Oil seal', 'quantity': 12}]})
+    assert result['intent'] == 'SPARE_USAGE'
+    assert 'usage totals do not establish stock or component life' in result['answer']
+
+
+@pytest.mark.parametrize('question', ['Reason for low life W1 P7', 'Investigate life W1 P7', 'Why W1 P7 spare failed?'])
+def test_reason_and_investigation_intents_take_precedence_over_life(question):
+    result = answer_from_evidence(question, insights(), {'position_investigation': {'line': 'W1', 'position': 7, 'campaigns': 0}})
+    assert result['intent'] == 'INVESTIGATION'
+    assert 'does not prove a root cause' in result['answer']

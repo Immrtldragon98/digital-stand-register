@@ -50,6 +50,7 @@ def answer_from_evidence(question, insights, history):
     known_stands = {row['stand'] for row in insights.get('ongoing', []) + insights.get('historical_stand_performance', []) if row.get('stand')}
     line, position, stand_codes = question_scope(question, known_lines, known_stands)
     causal_request = bool(re.search(r'WHY|CAUSE|FAIL|REASON|INVESTIGAT', upper))
+    spare_request = bool(re.search(r'SPARE|CONSUM|STOCK', upper))
     evidence = []
     limits = ['Snapshot elapsed days are not measured mill-runtime hours. Ongoing installations are excluded from completed-life averages.',
               'Recorded removal reasons and correlations support inspection priorities, not confirmed root causes.']
@@ -59,7 +60,12 @@ def answer_from_evidence(question, insights, history):
     answer = 'Ask: Which stand is currently installed longest? Which stand has better completed life at W1 P7? Which positions are weak? Why should W1 P7 be inspected?'
     current = _filter(insights.get('ongoing', []), line, position, stand_codes)
     cohorts, stand_basis, stand_unit = comparison_rows(insights, 'stand', line, position, stand_codes)
-    if (re.search(r'LONGEST|LONGER|OLDEST|MAXIMUM|MORE\s+(?:RUNNING\s+)?TIME|MOST\s+(?:RUN|HOUR|TIME)|RUNNING\s+(?:TIME|LONG)', upper)
+    if spare_request and not (causal_request and line and position is not None):
+        intent = 'SPARE_USAGE'
+        rows = history.get('top_spares', [])[:5]
+        answer = ('Highest recorded historical spare usage: ' + '; '.join(f"{r['spare']} ({r['quantity']})" for r in rows) + '. Use the preparation-stock register for its recorded current balance; usage totals do not establish stock or component life.') if rows else 'No historical spare-use evidence is available. Current stock must come from the preparation-stock register.'
+        evidence.extend({'label': row['spare'], 'value': str(row['quantity']), 'basis': 'RECORDED_HISTORICAL_USAGE'} for row in rows)
+    elif (re.search(r'LONGEST|LONGER|OLDEST|MAXIMUM|MORE\s+(?:RUNNING\s+)?TIME|MOST\s+(?:RUN|HOUR|TIME)|RUNNING\s+(?:TIME|LONG)', upper)
             and not causal_request and not ('LIFE' in upper and not re.search(r'CURRENT|ONGOING|RUNNING|INSTALLED', upper))):
         intent = 'LONGEST_CURRENT'
         if not current:
@@ -100,7 +106,7 @@ def answer_from_evidence(question, insights, history):
                 answer += ' Available observations: ' + '; '.join(f"{_label(r)} n={r.get('campaigns', 0)}, peer n={r.get('peer_campaigns', 0)}" for r in sparse) + '.'
         for row in supported[:5]:
             evidence.append({'label': _label(row), 'value': f"median {row['median_days']:.2f} {position_unit}; peer {row['peer_median_days']:.2f} {position_unit}", 'basis': position_basis, 'samples': row['campaigns']})
-    elif re.search(r'BEST|BETTER|STRONG|COMPARE|AVERAGE|AVG|LIFE|PERFORM', upper) and not re.search(r'WHY|CAUSE|FAIL', upper):
+    elif re.search(r'BEST|BETTER|STRONG|COMPARE|AVERAGE|AVG|LIFE|PERFORM', upper) and not causal_request:
         intent = 'COMPLETED_STAND_COMPARISON'
         supported = [r for r in cohorts if r.get('evidence') == 'SUFFICIENT' and r.get('vs_peer_pct') is not None]
         supported.sort(key=lambda r: r['vs_peer_pct'], reverse=True)
@@ -137,10 +143,5 @@ def answer_from_evidence(question, insights, history):
             answer = 'No removal-reason evidence is available for a causal diagnosis. Record the symptom, affected component, inspection findings, action taken and exact campaign link first.'
         if not history.get('data', {}).get('process_observations'):
             answer += ' No process observations are imported, so casting-speed or emulsion-temperature explanations cannot be tested.'
-    elif re.search(r'SPARE|CONSUM|STOCK', upper):
-        intent = 'SPARE_USAGE'
-        rows = history.get('top_spares', [])[:5]
-        answer = ('Highest recorded historical spare usage: ' + '; '.join(f"{r['spare']} ({r['quantity']})" for r in rows) + '. Use the preparation-stock register for its recorded current balance; usage totals do not establish stock or component life.') if rows else 'No historical spare-use evidence is available. Current stock must come from the preparation-stock register.'
-        evidence.extend({'label': row['spare'], 'value': str(row['quantity']), 'basis': 'RECORDED_HISTORICAL_USAGE'} for row in rows)
     return {'answer': answer, 'intent': intent, 'evidence': evidence, 'limitations': limits,
             'provider': 'deterministic', 'as_of': insights.get('as_of')}
