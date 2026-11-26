@@ -2,7 +2,7 @@ name: Verify release
 on:
   pull_request:
   push:
-    branches: [main, 'release/**', 'fix/**']
+    branches: [main, staging, 'release/**', 'fix/**']
   workflow_dispatch:
 permissions:
   contents: read

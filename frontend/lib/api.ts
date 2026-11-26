@@ -8,6 +8,9 @@ const responseCache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<unknown>>();
 const GET_TTL_MS = 30_000;
 let generation = 0;
+function connectionState(state:string) {
+  if(typeof window!=="undefined" && typeof window.dispatchEvent==="function" && typeof CustomEvent!=="undefined")window.dispatchEvent(new CustomEvent("dsr-api-state",{detail:state}));
+}
 export class ApiError extends Error { constructor(message:string, public status:number){super(message);this.name="ApiError";} }
 
 function cacheKey(endpoint: string) {
@@ -45,10 +48,12 @@ async function request(endpoint: string, options: RequestInit) {
           }, cache: "no-store",
         });
       } catch (error) {
+        connectionState(typeof navigator!=="undefined"&&!navigator.onLine?"offline":"reconnecting");
         if (!read || controller.signal.aborted || attempt >= 3) throw error;
       }
       const html = response?.headers.get("content-type")?.includes("text/html");
       const unavailable = !response || html || [502, 503, 504].includes(response.status);
+      connectionState(unavailable?"reconnecting":"online");
       if (read && unavailable && attempt < 3) {
         await response?.body?.cancel();
         await new Promise<void>((resolve, reject) => {

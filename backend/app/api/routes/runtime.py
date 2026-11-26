@@ -10,6 +10,8 @@ from app.models.line_runtime import LineRuntimeEvent
 from app.models.stand_position import Position
 from app.models.activity_log import ActivityLog
 from app.models.user import User
+from app.models.plant_measurement import RuntimeConfirmation
+from sqlalchemy import func
 from app.services.runtime_service import RuntimeService, utc_naive
 
 router=APIRouter()
@@ -25,9 +27,11 @@ class LineInput(BaseModel):
 @router.get('/lines')
 def lines(db:Session=Depends(get_db)):
     service=RuntimeService(db)
+    confirmations=dict(db.query(RuntimeConfirmation.line_id,func.max(RuntimeConfirmation.confirmed_at)).group_by(RuntimeConfirmation.line_id).all())
     return [{'id':line.id,'name':line.name,'state':service.events[line.id][-1].state if service.events[line.id] else 'UNKNOWN',
              'tracking_started_at':service.events[line.id][0].event_at if service.events[line.id] else None,
              'last_event_at':service.events[line.id][-1].event_at if service.events[line.id] else None,
+             'last_confirmed_at':max([stamp for stamp in [confirmations.get(line.id),service.events[line.id][-1].event_at if service.events[line.id] else None] if stamp],default=None),
              'planned_pm_hours_per_month':12,'event_count':len(service.events[line.id]),'history_truncated':len(service.events[line.id])>100,'events':[{'id':e.id,'state':e.state,'event_at':e.event_at,'reason':e.reason,'recorded_by':e.recorded_by} for e in service.events[line.id][-100:]]}
             for line in db.query(Line).order_by(Line.id).all()]
 

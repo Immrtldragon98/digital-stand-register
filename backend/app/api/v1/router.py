@@ -28,3 +28,5 @@ api_router.include_router(life_insights.router, prefix="/intelligence", tags=["C
 
 from app.api.routes import feedback
 api_router.include_router(feedback.router, prefix="/feedback", tags=["Bugs and Suggestions"])
+from app.api.routes import plant
+api_router.include_router(plant.router, prefix='/plant', tags=['Plant Dependability and Value'])

@@ -5,6 +5,7 @@ import { Activity, AlertTriangle, Clock, Droplets, Gauge, Layers, MapPin, Plus, 
 import { fetchApi } from "@/lib/api";
 import { apiDateMs, installationElapsedHours, runtimeHours, runtimeLabel } from "@/lib/runtime-display";
 import { getUser } from "@/lib/auth";
+import PreparationTimer from "@/components/stand/PreparationTimer";
 
 type EventRow={id:number;category:string;event_type:string;severity:string;component_name?:string|null;duration_minutes?:number|null;description?:string|null;action_taken?:string|null;event_at:string;recorded_by:string};
 
@@ -44,10 +45,11 @@ export default function StandDetails({ stand }: { stand: any }) {
   const attention=condition.leakage||condition.vibration||condition.abnormal_sound;
   return <div className="mechanical-panel p-4 md:p-5">
     <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-800">
-      <div><h2 className="text-lg font-bold text-white flex items-center gap-2"><Layers className="w-5 h-5 text-sky-400" />Stand {stand.code}</h2><p className="text-xs text-slate-300 mt-1">Running condition, components, events and life history</p></div>
-      <span className={`px-3 py-1 rounded-full border text-xs font-semibold ${attention?"bg-rose-950/40 text-rose-300 border-rose-800":"bg-emerald-950/40 text-emerald-300 border-emerald-800"}`}>{attention?"Needs attention":"Running normal"}</span>
+      <div><h2 className="text-lg font-bold text-white flex items-center gap-2"><Layers className="w-5 h-5 text-sky-400" />Stand {stand.code}</h2><p className="text-xs text-slate-300 mt-1">Recorded condition, components, events and life history</p></div>
+      <span className={`px-3 py-1 rounded-full border text-xs font-semibold ${attention?"bg-rose-950/40 text-rose-300 border-rose-800":"bg-slate-900 text-slate-300 border-slate-700"}`}>{attention?"Needs attention":"No condition flags recorded"}</span>
     </div>
 
+    <PreparationTimer stand={stand}/>
     <div className="flex gap-1 rounded-lg border border-slate-800 bg-slate-950/60 p-1 mb-4 w-fit max-w-full overflow-x-auto">
       {[['overview','Overview'],['components','Components'],['events','Events'],['history','History']].map(([key,label])=><button key={key} onClick={()=>setTab(key as any)} className={`px-3 py-2 rounded text-xs font-semibold whitespace-nowrap ${tab===key?'bg-blue-600 text-white':'text-slate-300 hover:text-white'}`}>{label}</button>)}
     </div>

@@ -57,6 +57,9 @@ async def request_diagnostics(request, call_next):
     request_id = uuid.uuid4().hex
     started = time.monotonic()
     logger = logging.getLogger('dsr.requests')
+    import os
+    if os.getenv('DSR_ENVIRONMENT') == 'staging' and request.method not in {'GET','HEAD','OPTIONS'}:
+        return JSONResponse(status_code=403, content={'detail':'Staging is read-only and contains synthetic demonstration data.'})
     try:
         response = await call_next(request)
     except Exception as exc:

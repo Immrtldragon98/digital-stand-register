@@ -217,6 +217,12 @@ class OperationService:
 
         stand.current_status = status
         stand.current_location = LocationEnum.READY_AREA if status == StatusEnum.READY else LocationEnum.WIP
+        if status == StatusEnum.READY:
+            from app.models.plant_measurement import PreparationCycle
+            cycle = self.db.query(PreparationCycle).filter_by(stand_id=stand.id, finished_at=None).with_for_update().first()
+            if cycle:
+                cycle.finished_at = now
+                cycle.finished_by = operator
         self.db.add(StandPreparationEvent(stand_id=stand.id, from_status=current, to_status=status, updated_by=operator, remarks=(remarks or "").strip() or None, changed_at=now))
         if status in {StatusEnum.GAUGING, StatusEnum.HYDROTEST, StatusEnum.READY}:
             self.db.add(ActivityLog(user_id=user_id, action=f"{status.value}_COMPLETE", timestamp=now, details=f"Stand {stand.code}: {status.value} completed by {operator}. Remarks: {(remarks or 'not recorded').strip() or 'not recorded'}."))

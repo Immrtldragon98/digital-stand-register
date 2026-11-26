@@ -1,0 +1,10 @@
+{
+  "status": "VERIFIED_MANUAL_RESTORE",
+  "verified_at": "2026-11-26T15:44:21.095Z",
+  "snapshot_id": "snap-fancy-darkness-a1odkf1b",
+  "restored_branch": "br-bold-salad-a11agew0",
+  "tables_verified": 30,
+  "content_fingerprints_match": true,
+  "scheduled_backups": "NOT_AVAILABLE_ON_CURRENT_ACCOUNT",
+  "production_replaced": false
+}

@@ -21,3 +21,4 @@ from app.models.component_asset import ComponentAsset, ComponentFitting, Prepara
 from app.models.line_runtime import LineRuntimeEvent
 from app.models.command_receipt import CommandReceipt
 from app.models.feedback_report import FeedbackReport
+from app.models.plant_measurement import PreparationCycle, MaintenanceMeasurement, ValueBaseline, RuntimeConfirmation
