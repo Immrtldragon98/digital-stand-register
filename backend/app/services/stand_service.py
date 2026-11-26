@@ -51,7 +51,7 @@ class StandService:
 
         runtime = RuntimeService(self.db)
         active = next((x for x in installations if x.removed_at is None), None)
-        reading = runtime.installation(active) if active else dict(hours=None,known_hours=0,complete=False,elapsed_hours=0)
+        reading = runtime.installation(active) if active else dict(hours=None,known_hours=0,complete=False,elapsed_hours=None,has_coverage=False,coverage_status="NONE",observed_from=None)
         current_campaign_hours = reading["hours"]
         totals = runtime.stand_runtime(stand, installations)
         total_hours = totals["lifetime_hours"]
@@ -77,6 +77,10 @@ class StandService:
                         "condition_notes": guide_inst.guide.condition_notes,
                         **runtime.stand_runtime(guide_inst.guide, guide_history),
                         "current_campaign_hours": guide_campaign,
+                        "known_runtime_hours": runtime.installation(guide_inst)["known_hours"] if runtime.installation(guide_inst)["has_coverage"] else None,
+                        "runtime_complete": runtime.installation(guide_inst)["complete"],
+                        "coverage_status": runtime.installation(guide_inst)["coverage_status"],
+                        "elapsed_hours": runtime.installation(guide_inst)["elapsed_hours"],
                         "installed_at": guide_inst.installed_at,
                         "history": [
                             {
@@ -84,6 +88,9 @@ class StandService:
                                 "installed_at": item.installed_at,
                                 "removed_at": item.removed_at,
                                 "campaign_hours": runtime.installation(item)["hours"],
+                                "known_runtime_hours": runtime.installation(item)["known_hours"] if runtime.installation(item)["has_coverage"] else None,
+                                "runtime_complete": runtime.installation(item)["complete"],
+                                "coverage_status": runtime.installation(item)["coverage_status"],
                                 "elapsed_hours": runtime.installation(item)["elapsed_hours"],
                                 "installed_by": item.installed_by,
                                 "removed_by": item.removed_by,
@@ -128,8 +135,9 @@ class StandService:
             "installed_at": inst.installed_at,
             "removed_at": inst.removed_at,
             "campaign_hours": runtime.installation(inst)["hours"],
-            "known_runtime_hours": runtime.installation(inst)["known_hours"],
+            "known_runtime_hours": runtime.installation(inst)["known_hours"] if runtime.installation(inst)["has_coverage"] else None,
             "runtime_complete": runtime.installation(inst)["complete"],
+            "coverage_status": runtime.installation(inst)["coverage_status"],
             "elapsed_hours": runtime.installation(inst)["elapsed_hours"],
             "installed_by": inst.installed_by,
             "removed_by": inst.removed_by,
@@ -156,8 +164,9 @@ class StandService:
             "position_number": current_position.position_number if current_position else None,
             "current_installed_at": active.installed_at if active else None,
             **totals,
-            "known_runtime_hours": reading["known_hours"],
+            "known_runtime_hours": reading["known_hours"] if reading["has_coverage"] else None,
             "runtime_complete": reading["complete"],
+            "coverage_status": reading["coverage_status"], "observed_from": reading["observed_from"],
             "elapsed_hours": reading["elapsed_hours"],
             "current_campaign_hours": current_campaign_hours,
             "leakage": stand.leakage,

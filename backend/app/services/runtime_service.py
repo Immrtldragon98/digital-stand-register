@@ -40,12 +40,18 @@ class RuntimeService:
         start, end = utc_naive(start), utc_naive(end or datetime.utcnow())
         elapsed = max(0.0,(end-start).total_seconds()/3600)
         if end < start:
-            return dict(hours=None, known_hours=0.0, complete=False, elapsed_hours=0.0)
+            return dict(hours=None, known_hours=0.0, complete=False, elapsed_hours=0.0, has_coverage=False, coverage_status='NONE', observed_from=None, covered_elapsed_hours=0.0)
         times = self._times.get(line_id, [])
         complete = bool(times) and times[0] <= start
         known = max(0.0, self._integral(line_id,end)-self._integral(line_id,start))
         known = round(known,4)
-        return dict(hours=known if complete else None,known_hours=known,complete=complete,elapsed_hours=round(elapsed,4))
+        has_coverage = complete or bool(times and times[0] < end)
+        observed_from = max(start, times[0]) if has_coverage else None
+        covered = max(0.0, (end-observed_from).total_seconds()/3600) if observed_from else 0.0
+        return dict(hours=known if complete else None, known_hours=known, complete=complete,
+                    elapsed_hours=round(elapsed,4), has_coverage=has_coverage,
+                    coverage_status='COMPLETE' if complete else 'PARTIAL' if has_coverage else 'NONE',
+                    observed_from=observed_from, covered_elapsed_hours=round(covered,4))
 
     interval = measure
 
@@ -60,6 +66,6 @@ class RuntimeService:
         # A legacy zero is not evidence of a known-zero pre-register lifetime.
         # Existing stand/guide baselines were not verified during import.
         history_complete = bool(readings) and all(x['complete'] for x in readings)
-        return dict(lifetime_hours=None, measured_lifetime_hours=known,
+        return dict(lifetime_hours=None, measured_lifetime_hours=known if any(x['has_coverage'] for x in readings) else None,
                     lifetime_complete=False, measured_history_complete=history_complete,
                     legacy_lifetime_hours=stand.lifetime_hours)

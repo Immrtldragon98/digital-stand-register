@@ -22,3 +22,6 @@ api_router.include_router(system.router, prefix="/system", tags=["System Status"
 api_router.include_router(pm.router, prefix="/pm", tags=["PM Schedule"])
 from app.api.routes import runtime
 api_router.include_router(runtime.router, prefix='/runtime', tags=['Mill Runtime'])
+
+from app.api.routes import life_insights
+api_router.include_router(life_insights.router, prefix="/intelligence", tags=["Campaign Life Insights"])

@@ -37,6 +37,7 @@ class ComponentLifecycleService:
     def asset_life(self, asset, at=None):
         at = at or datetime.utcnow()
         known = 0.0
+        has_runtime_coverage = False
         complete = asset.prior_life_hours is not None
         if self._fittings is None or asset.id not in self._loaded_assets:
             self.preload_assets([asset])
@@ -55,10 +56,11 @@ class ComponentLifecycleService:
                     continue
                 measured = self.runtime.measure(position.line_id, start, end)
                 known += measured['known_hours']
+                has_runtime_coverage = has_runtime_coverage or measured['has_coverage']
                 complete = complete and measured['complete']
         known = round(known, 3)
         return {'measured_life_hours': round((asset.prior_life_hours or 0) + known, 3) if complete else None,
-                'known_runtime_hours': known, 'life_complete': complete,
+                'known_runtime_hours': known if has_runtime_coverage else None, 'life_complete': complete,
                 'prior_life_hours': asset.prior_life_hours}
 
     def asset_payload(self, asset, stand_id=None):

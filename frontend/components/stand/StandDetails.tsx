@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Activity, AlertTriangle, Clock, Droplets, Gauge, Layers, MapPin, Plus, Volume2 } from "lucide-react";
 import { fetchApi } from "@/lib/api";
-import { runtimeHours, runtimeLabel } from "@/lib/runtime-display";
+import { apiDateMs, installationElapsedHours, runtimeHours, runtimeLabel } from "@/lib/runtime-display";
 import { getUser } from "@/lib/auth";
 
 type EventRow={id:number;category:string;event_type:string;severity:string;component_name?:string|null;duration_minutes?:number|null;description?:string|null;action_taken?:string|null;event_at:string;recorded_by:string};
@@ -57,7 +57,8 @@ export default function StandDetails({ stand }: { stand: any }) {
     {tab==="overview"&&<>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
         <Info icon={<Clock />} label="Installed" value={stand.current_installed_at?shortDate(stand.current_installed_at):"—"} />
-        <Info icon={<Clock />} label="Current Campaign" value={runtimeLabel(stand.current_campaign_hours,stand.known_runtime_hours,stand.runtime_complete)} />
+        <Info icon={<Clock />} label="Actual current mill run" value={runtimeLabel(stand.current_campaign_hours,stand.known_runtime_hours,stand.runtime_complete)} />
+        <Info icon={<Clock />} label="Installed elapsed (includes stops)" value={runtimeHours(installationElapsedHours(stand,Date.now()))} />
         <Info icon={<Clock />} label="Measured Stand Life" value={runtimeLabel(stand.lifetime_hours,stand.measured_lifetime_hours,stand.lifetime_complete)} />
         <Info icon={<MapPin />} label="Position" value={stand.position_number ? `P${stand.position_number}` : "Spare"} />
         <Info icon={<Droplets />} label="Leakage" value={condition.leakage ? "YES" : "No"} warn={condition.leakage} />
@@ -92,8 +93,8 @@ export default function StandDetails({ stand }: { stand: any }) {
 }
 
 function pretty(value:string){return (value||"").replaceAll("_"," ").toLowerCase().replace(/\b\w/g,c=>c.toUpperCase());}
-function dateTime(value:string){return new Date(value).toLocaleString();}
-function shortDate(value:string){return new Date(value).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"2-digit"});}
+function dateTime(value:string){return new Date(apiDateMs(value)).toLocaleString();}
+function shortDate(value:string){return new Date(apiDateMs(value)).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"2-digit"});}
 function oldFmtHours(v:any){const n=Number(v);return Number.isFinite(n)?`${n.toFixed(n<10?1:0)} h`:"—";}
 function lifePercent(total:any,expected:any){if(total==null||total===""||expected==null||expected==="")return null;const t=Number(total),e=Number(expected);if(!Number.isFinite(t)||!Number.isFinite(e)||e<=0)return null;return Math.round((t/e)*100);}
 function healthLabel(pct:number|null){if(pct===null)return "—";if(pct>=100)return "OVER LIFE";if(pct>=90)return "REPLACE SOON";if(pct>=70)return "WATCH";return "GOOD";}

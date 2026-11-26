@@ -16,6 +16,8 @@ from app.models.stand_installation import StandInstallation
 from app.models.stand_position import Position
 from app.models.user import User
 from app.services.runtime_service import RuntimeService
+from app.services.life_insight_service import dedupe_completed_campaigns
+from app.services.evidence_service import bounded_rows
 
 router = APIRouter()
 
@@ -44,21 +46,23 @@ def planning_summary(db: Session = Depends(get_db)):
             if p:
                 ready_counts[p] += 1
 
-    history = db.query(HistoricalCampaign).filter(HistoricalCampaign.life_days.isnot(None)).all()
+    history_rows, history_truncated = bounded_rows(db.query(HistoricalCampaign).order_by(HistoricalCampaign.installed_date.desc(), HistoricalCampaign.id.desc()))
+    history, _ = dedupe_completed_campaigns(history_rows)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     runtime = RuntimeService(db)
     result = []
     for position, line in positions:
         inst = active.get(position.id)
         stand = stands.get(inst.stand_id) if inst else None
-        current_hours = None
-        if inst:
-            current_hours = runtime.installation(inst, now)["hours"]
-        hist = [h.life_days for h in history if h.line_name == line.name and h.position_number == position.position_number and h.life_days is not None and h.life_days >= 0]
+        reading = runtime.installation(inst, now) if inst else None
+        current_hours = reading["hours"] if reading else None
+        hist = [h.life_days for h in history if h.line_name == line.name and h.position_number == position.position_number and h.life_days is not None and h.life_days > 0]
         hist_avg_days = round(mean(hist), 2) if hist else None
         target = position.target_life_hours
         life_pct = round((current_hours / target) * 100, 1) if current_hours is not None and target else None
-        if life_pct is None:
+        if current_hours is None:
+            risk = "RUNTIME_UNKNOWN"
+        elif life_pct is None:
             risk = "NO_TARGET"
         elif life_pct >= 95 and ready_counts[position.position_number] == 0:
             risk = "CRITICAL"
@@ -79,8 +83,11 @@ def planning_summary(db: Session = Depends(get_db)):
             "life_percent": life_pct,
             "historical_avg_days": hist_avg_days,
             "historical_basis": "INFERRED_ELAPSED_DAYS_NOT_MEASURED_RUNTIME",
-            "runtime_complete": runtime.installation(inst, now)["complete"] if inst else False,
-            "known_runtime_hours": runtime.installation(inst, now)["known_hours"] if inst else 0,
+            "runtime_complete": reading["complete"] if reading else False,
+            "coverage_status": reading["coverage_status"] if reading else "NONE",
+            "elapsed_hours": reading["elapsed_hours"] if reading else None,
+            "history_truncated": history_truncated,
+            "known_runtime_hours": reading["known_hours"] if reading and reading["has_coverage"] else None,
             "historical_campaigns": len(hist),
             "ready_count": ready_counts[position.position_number],
             "risk": risk,

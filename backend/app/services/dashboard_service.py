@@ -1,4 +1,5 @@
 from datetime import datetime
+from collections import defaultdict
 from sqlalchemy.orm import Session, joinedload
 from app.models.line import Line
 from app.models.stand_installation import StandInstallation
@@ -39,6 +40,13 @@ class DashboardService:
         guides_by_position = {item.position_id: item for item in guide_installations}
 
         runtime = RuntimeService(self.db)
+        as_of = datetime.utcnow()
+        histories = defaultdict(list)
+        for item in self.db.query(StandInstallation).filter(StandInstallation.stand_id.in_([x.stand_id for x in stand_installations])).all():
+            histories[item.stand_id].append(item)
+        guide_histories = defaultdict(list)
+        for item in self.db.query(EntryGuideInstallation).filter(EntryGuideInstallation.guide_id.in_([x.guide_id for x in guide_installations])).all():
+            guide_histories[item.guide_id].append(item)
         dashboard_data = []
         for line in lines:
             line_positions = []
@@ -48,7 +56,7 @@ class DashboardService:
 
                 stand_payload = None
                 if active_stand:
-                    reading = runtime.installation(active_stand)
+                    reading = runtime.installation(active_stand, as_of)
                     campaign_hours = reading["hours"]
                     target = pos.target_life_hours
                     life_percent = round((campaign_hours / target) * 100, 1) if target and campaign_hours is not None else None
@@ -61,8 +69,11 @@ class DashboardService:
                         "target_life_hours": target,
                         "life_percent": life_percent,
                         "remaining_hours": remaining_hours,
-                        **runtime.stand_runtime(active_stand.stand),
-                        "known_runtime_hours": reading["known_hours"], "runtime_complete": reading["complete"], "elapsed_hours": reading["elapsed_hours"],
+                        **runtime.stand_runtime(active_stand.stand, histories[active_stand.stand_id], as_of),
+                        "known_runtime_hours": reading["known_hours"] if reading['has_coverage'] else None,
+                        "runtime_complete": reading["complete"], "elapsed_hours": reading["elapsed_hours"],
+                        "coverage_status": reading['coverage_status'], "observed_from": reading['observed_from'],
+                        "ongoing": True, "duration_basis": "ACTUAL_MILL_RUNTIME" if reading['complete'] else "RUNTIME_INCOMPLETE",
                         "leakage": active_stand.stand.leakage,
                         "vibration": active_stand.stand.vibration,
                         "abnormal_sound": active_stand.stand.abnormal_sound,
@@ -70,6 +81,7 @@ class DashboardService:
                         "health": "ATTENTION" if (active_stand.stand.leakage or active_stand.stand.vibration or active_stand.stand.abnormal_sound) else "NORMAL",
                     }
 
+                guide_reading = runtime.installation(active_guide, as_of) if active_guide else None
                 line_positions.append({
                     "id": pos.id,
                     "position_number": pos.position_number,
@@ -80,10 +92,11 @@ class DashboardService:
                         "code": active_guide.guide.code,
                         "condition": active_guide.guide.condition,
                         "installed_at": active_guide.installed_at,
-                        "campaign_hours": runtime.installation(active_guide)["hours"],
-                        "known_runtime_hours": runtime.installation(active_guide)["known_hours"],
-                        "runtime_complete": runtime.installation(active_guide)["complete"],
-                        **runtime.stand_runtime(active_guide.guide, self.db.query(EntryGuideInstallation).filter_by(guide_id=active_guide.guide.id).all()),
+                        "campaign_hours": guide_reading["hours"],
+                        "known_runtime_hours": guide_reading["known_hours"] if guide_reading["has_coverage"] else None,
+                        "runtime_complete": guide_reading["complete"],
+                        "elapsed_hours": guide_reading['elapsed_hours'], "coverage_status": guide_reading['coverage_status'],
+                        **runtime.stand_runtime(active_guide.guide, guide_histories[active_guide.guide_id], as_of),
                     } if active_guide else None,
                 })
 

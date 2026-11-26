@@ -1,7 +1,10 @@
 from collections import Counter, defaultdict
 from statistics import mean, median
+from app.services.life_insight_service import dedupe_completed_campaigns, completed_comparisons
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel, Field
+from app.services.intelligence_answer_service import answer_from_evidence, question_scope
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
@@ -49,53 +52,47 @@ def _safe_median(values):
     return round(median(values), 2) if values else None
 
 
+MIN_COMPARISON_SAMPLES = 3
+
+
+def completed_snapshot_campaigns(campaigns):
+    return dedupe_completed_campaigns(campaigns)[0]
+
+
+def position_screening(campaigns):
+    """Adapt the shared comparison calculation to the existing summary contract."""
+    _, positions = completed_comparisons(campaigns)
+    return [{**row, "vs_position_baseline_pct": row["vs_peer_pct"],
+             "eligible_for_comparison": row["evidence"] == "SUFFICIENT",
+             "evidence_strength": "LIMITED" if row["evidence"] != "SUFFICIENT" else "PRELIMINARY",
+             "life_basis": row["basis"]} for row in positions]
+
+
 @router.get("/summary")
 def intelligence_summary(db: Session = Depends(get_db)):
-    campaigns, campaigns_truncated = bounded_rows(db.query(HistoricalCampaign).filter(HistoricalCampaign.life_days.isnot(None)).order_by(HistoricalCampaign.installed_date.desc(), HistoricalCampaign.id.desc()))
+    campaigns, campaigns_truncated = bounded_rows(db.query(HistoricalCampaign).order_by(HistoricalCampaign.installed_date.desc(), HistoricalCampaign.id.desc()))
     spares, spares_truncated = bounded_rows(db.query(HistoricalSpareUsage).order_by(HistoricalSpareUsage.usage_date.desc(), HistoricalSpareUsage.id.desc()))
     process, process_truncated = bounded_rows(db.query(ProcessObservation).order_by(ProcessObservation.observation_date.desc(), ProcessObservation.id.desc()))
 
-    # Zero-day entries are snapshot/changeover ambiguity, not a measurable campaign life.
-    valid = [c for c in campaigns if c.life_days is not None and c.life_days > 0]
+    # Open installations are right-censored and cannot enter completed-life averages.
+    valid, history_exclusions = dedupe_completed_campaigns(campaigns)
     line_names = sorted({row.name for row in db.query(Line).limit(1000).all()} | {row.line_name for row in campaigns} | {row.line_name for row in process})
     line_stats = []
-    position_stats = []
     for line in line_names:
         lv = [c.life_days for c in valid if c.line_name == line]
-        line_stats.append({"line": line, "campaigns": len(lv), "avg_days": _safe_avg(lv), "median_days": _safe_median(lv)})
-        for pos in range(1, 11):
-            pv = [c.life_days for c in valid if c.line_name == line and c.position_number == pos]
-            if pv:
-                position_stats.append({
-                    "line": line, "position": pos, "campaigns": len(pv),
-                    "avg_days": _safe_avg(pv), "median_days": _safe_median(pv),
-                    "min_days": round(min(pv), 2), "max_days": round(max(pv), 2),
-                })
-
-    pos_baseline = {}
-    for pos in range(1, 11):
-        vals = [c.life_days for c in valid if c.position_number == pos]
-        pos_baseline[pos] = mean(vals) if vals else None
-    weak_positions = []
-    for p in position_stats:
-        baseline = pos_baseline.get(p["position"])
-        if baseline and p["avg_days"] is not None:
-            delta = ((p["avg_days"] - baseline) / baseline) * 100
-            weak_positions.append({**p, "vs_position_baseline_pct": round(delta, 1)})
-    weak_positions.sort(key=lambda x: x["vs_position_baseline_pct"])
+        line_stats.append({"line": line, "campaigns": len(lv), "avg_days": _safe_avg(lv), "median_days": _safe_median(lv),
+            "life_basis": "INFERRED_SNAPSHOT_ELAPSED_DAYS", "comparison_note": "Mixed position summary only; do not rank whole lines from this value."})
+    position_stats = position_screening(valid)
+    weak_positions = sorted((p for p in position_stats if p["eligible_for_comparison"]), key=lambda p: p["vs_position_baseline_pct"])
 
     cause_counts = Counter(_cause(c.removal_reason) for c in valid if c.removal_reason)
     cause_pareto = [{"cause": k, "count": v} for k, v in cause_counts.most_common(12)]
 
-    by_stand = defaultdict(list)
-    for c in valid:
-        by_stand[c.stand_code].append(c.life_days)
-    repeat_low_life = []
-    for code, vals in by_stand.items():
-        if len(vals) < 3:
-            continue
-        repeat_low_life.append({"stand": code, "campaigns": len(vals), "avg_days": _safe_avg(vals), "median_days": _safe_median(vals)})
-    repeat_low_life.sort(key=lambda x: (x["avg_days"] if x["avg_days"] is not None else 999999, -x["campaigns"]))
+    stand_stats, _ = completed_comparisons(valid)
+    repeat_low_life = [{**row, "vs_peer_median_pct": row["vs_peer_pct"],
+        "life_basis": row["basis"], "evidence_strength": "PRELIMINARY"}
+        for row in stand_stats if row["evidence"] == "SUFFICIENT" and row["vs_peer_pct"] < 0]
+    repeat_low_life.sort(key=lambda row: row["vs_peer_median_pct"])
 
     spare_totals = defaultdict(float)
     for s in spares:
@@ -131,14 +128,34 @@ def intelligence_summary(db: Session = Depends(get_db)):
                 })
 
     return {
+        "history_exclusions": history_exclusions,
         "life_basis": "INFERRED_SNAPSHOT_ELAPSED_DAYS",
         "history_truncated": {"campaigns": campaigns_truncated, "spares": spares_truncated, "process": process_truncated},
         "data": {"campaigns": len(valid), "spare_usage_rows": len(spares), "process_observations": len(process)},
         "line_stats": line_stats,
         "weak_positions": weak_positions[:10],
+        "position_comparisons": position_stats,
+        "comparison_min_samples": MIN_COMPARISON_SAMPLES,
         "cause_pareto": cause_pareto,
         "repeat_low_life": repeat_low_life[:12],
         "top_spares": top_spares,
         "process_screen": process_screen,
-        "method_note": "Life is inferred snapshot elapsed days, not measured mill runtime. Analytics uses the latest 20,000 rows per stream; truncation flags identify excluded history. Historical campaigns reconstructed from daily snapshots are inferred. Zero-day changeover ambiguity is excluded from life baselines. Process comparisons are correlations for engineering screening, not confirmed causes."
+        "method_note": "Life is inferred snapshot elapsed days, not measured mill runtime. Only completed campaigns enter averages; duplicate imports and ongoing campaigns are excluded. Position screening uses medians against other lines at the same position, with at least 3 campaigns on each side, and does not establish a failure cause or statistical significance. Analytics uses the latest 20,000 rows per stream; truncation flags identify excluded history. Historical campaigns reconstructed from daily snapshots are inferred. Zero-day changeover ambiguity is excluded from life baselines. Process comparisons are correlations for engineering screening, not confirmed causes."
     }
+
+
+class IntelligenceQuestion(BaseModel):
+    question: str = Field(min_length=1, max_length=1000)
+
+
+@router.post("/ask")
+def ask_intelligence(payload: IntelligenceQuestion, db: Session = Depends(get_db)):
+    # Read-only analytics remains available if external model quota or connectivity fails.
+    from app.services.life_insight_service import LifeInsightService
+    insights = LifeInsightService(db).summary()
+    history = intelligence_summary(db)
+    line, position, _ = question_scope(payload.question, {row['line'] for row in insights.get('ongoing', []) if row.get('line')})
+    if line and position is not None:
+        from app.api.routes.investigation import investigate_position
+        history['position_investigation'] = investigate_position(line, position, db)
+    return answer_from_evidence(payload.question.strip(), insights, history)

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
+from app.api.routes.intelligence import completed_snapshot_campaigns
 from app.services.evidence_service import bounded_rows, merge_intervals, in_intervals
 from app.models.line import Line
 from app.models.reliability_history import HistoricalCampaign, HistoricalSpareUsage, ProcessObservation
@@ -95,14 +96,13 @@ def investigate_position(
     event_types = Counter((e["event_type"] or "UNSPECIFIED").strip().upper() for e in live_events)
     event_components = Counter((e["component_name"] or "").strip() for e in live_events if e.get("component_name"))
     stoppages = sum(1 for e in live_events if e["severity"] == "STOPPAGE")
-    downtime_minutes = round(sum(float(e.get("duration_minutes") or 0) for e in live_events), 1)
+    downtime_minutes = round(sum(float(e.get("duration_minutes") or 0) for e in live_events if e["severity"] == "STOPPAGE"), 1)
 
     campaigns, campaigns_truncated = bounded_rows(db.query(HistoricalCampaign).filter(
         HistoricalCampaign.line_name == line,
         HistoricalCampaign.position_number == position,
-        HistoricalCampaign.life_days.isnot(None),
     ).order_by(HistoricalCampaign.installed_date.desc(), HistoricalCampaign.id.desc()))
-    valid = [c for c in campaigns if c.life_days is not None and c.life_days > 0]
+    valid = completed_snapshot_campaigns(campaigns)
     event_summary = {
         "count": len(live_events),
         "limited_to": 50,
@@ -167,6 +167,8 @@ def investigate_position(
             "avg_days": _avg(vals),
             "median_days": _med(vals),
             "early_campaigns": sum(1 for v in vals if v <= early_threshold),
+            "evidence_strength": "LIMITED" if len(vals) < 3 else "PRELIMINARY",
+            "comparison_note": "Observed completed elapsed durations only; different stand codes may have unequal samples.",
         })
     stand_codes.sort(key=lambda x: (x["avg_days"] if x["avg_days"] is not None else 999999, -x["campaigns"]))
 
@@ -228,5 +230,5 @@ def investigate_position(
         "process": process_results,
         "live_events": live_events,
         "event_summary": event_summary,
-        "method_note": "Historical life is inferred elapsed days, not measured mill runtime. Analytics uses latest 20,000 rows per stream; truncation flags disclose excluded history. Live campaign events are exact records linked to stand installations. Imported stand history, spare usage and process parameters remain separate evidence streams. Date alignment is screening evidence, not confirmed root cause.",
+        "method_note": "Historical life is inferred elapsed days, not measured mill runtime. Analytics uses latest 20,000 rows per stream; truncation flags disclose excluded history. Ongoing campaigns and duplicate imports are excluded from averages. Live campaign events are operator-entered records linked to stand installations; recorded reasons are not a confirmed root cause. Imported stand history, spare usage and process parameters remain separate evidence streams. Date alignment is screening evidence, not confirmed root cause.",
     }
