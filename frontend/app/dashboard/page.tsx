@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Header from "@/components/layout/Header";
+import CurrentRunSummary from "@/components/dashboard/CurrentRunSummary";
 import LineStatusGrid from "@/components/dashboard/LineStatusGrid";
 import { API_BASE_URL, fetchApi, invalidateApiCache } from "@/lib/api";
 import { DashboardSnapshot, isDashboard, readSnapshot, saveSnapshot } from "@/lib/dashboard-snapshot";
@@ -62,7 +63,7 @@ export default function DashboardPage() {
       <div className="mb-4 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
         <div><h1 className="page-title">Running Stands</h1><p className="page-subtitle mt-1">Select a stand to view components and history.</p></div>
         <div className="flex items-center gap-3">
-          <div className="text-right"><div className="text-sm text-slate-300">{snapshot ? <><span className="font-semibold text-white">{running}</span> / {total} running{stale ? " · saved copy" : ""}</> : "Running count unavailable"}</div><div className="mt-0.5 text-[11px] text-slate-400">Last synced: {updated}</div></div>
+          <div className="text-right"><div className="text-sm text-slate-300">{snapshot ? <><span className="font-semibold text-white">{running}</span> / {total} installed{stale ? " · saved copy" : ""}</> : "Running count unavailable"}</div><div className="mt-0.5 text-[11px] text-slate-400">Last synced: {updated}</div></div>
           <button onClick={() => refresh.current()} disabled={loading} aria-label="Refresh running stands" className="inline-flex items-center gap-2 rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-60"><RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />{loading ? "Connecting…" : "Refresh"}</button>
         </div>
       </div>
@@ -70,7 +71,7 @@ export default function DashboardPage() {
         {snapshot ? "Showing the last saved dashboard. Stand status and running hours may have changed. " : "Connecting to the server. The first connection can take about a minute. "}
         {error || "Checking for updated data…"} Stand changes require a live connection.
       </div>}
-      {snapshot ? <LineStatusGrid lines={lines} /> : <div aria-label="Waiting for running stands" aria-busy={loading} className="grid gap-4">{[1, 2, 3].map(i => <div key={i} className="mechanical-panel p-4"><div className="h-5 w-24 rounded bg-slate-700 animate-pulse mb-4" /><div className="h-28 rounded bg-slate-800 animate-pulse" /></div>)}</div>}
+      {snapshot ? <><CurrentRunSummary lines={lines} asOf={snapshot.savedAt}/><LineStatusGrid lines={lines} asOf={snapshot.savedAt}/></> : <div aria-label="Waiting for running stands" aria-busy={loading} className="grid gap-4">{[1, 2, 3].map(i => <div key={i} className="mechanical-panel p-4"><div className="h-5 w-24 rounded bg-slate-700 animate-pulse mb-4" /><div className="h-28 rounded bg-slate-800 animate-pulse" /></div>)}</div>}
     </main>
   </div>;
 }

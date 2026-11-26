@@ -2,14 +2,13 @@
 
 import { useState } from "react";
 import { fetchApi } from "@/lib/api";
-import { runtimeLabel } from "@/lib/runtime-display";
+import { apiDateMs, installationElapsedHours, runtimeHours, runtimeLabel } from "@/lib/runtime-display";
 import StandDetails from "@/components/stand/StandDetails";
 
-function run(v:unknown){const h=Number(v??0);if(!Number.isFinite(h)||h<=0)return"0 h";const d=Math.floor(h/24),r=Math.floor(h%24);return d?`${d}d ${r}h`:`${Math.floor(h)} h`;}
-function date(v:unknown){if(!v)return"—";const d=new Date(String(v));return Number.isNaN(d.getTime())?"—":d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"2-digit"});}
+function date(v:unknown){if(!v)return"—";const d=new Date(apiDateMs(v));return Number.isNaN(d.getTime())?"—":d.toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"2-digit"});}
 const lineTone={bar:"bg-[#4EA1FF]",badge:"text-slate-100",header:"bg-[#151F2E]"};
 
-export default function LineStatusGrid({lines}:{lines:any[]}){
+export default function LineStatusGrid({lines,asOf=Date.now()}:{lines:any[];asOf?:number}){
   const[selected,setSelected]=useState<any>(null);const[error,setError]=useState("");
   if(!lines?.length)return <div className="text-slate-400 text-sm">No running lines mapped.</div>;
   async function open(s:any){if(!s?.id)return;try{setError("");setSelected(await fetchApi(`/stands/${s.id}`))}catch(e:any){setError(e.message||"Could not load stand")}}
@@ -18,7 +17,7 @@ export default function LineStatusGrid({lines}:{lines:any[]}){
     <div className="grid gap-4">
       {lines.map(line=>{const tone=lineTone;return <section key={line.id} className="mechanical-panel overflow-hidden">
         <div className={`flex items-center justify-between px-4 py-3 border-b border-[#26354a] ${tone.header}`}>
-          <div className="flex items-center gap-2"><span className={`h-8 w-1 rounded-full ${tone.bar}`}/><div><div className={`text-base font-bold ${tone.badge}`}>{line.name}</div><div className="text-xs text-slate-300">Running line</div></div></div>
+          <div className="flex items-center gap-2"><span className={`h-8 w-1 rounded-full ${tone.bar}`}/><div><div className={`text-base font-bold ${tone.badge}`}>{line.name}</div><div className="text-xs text-slate-300">Installed stands · actual runtime tracked separately</div></div></div>
           <span className="rounded-full border border-slate-700/70 bg-slate-950/30 px-2.5 py-1 text-[10px] font-semibold text-slate-300">{line.positions?.length || 0} positions</span>
         </div>
         <div className="flex gap-2 overflow-x-auto p-2 md:grid md:grid-cols-10 md:gap-px md:bg-[#243247] md:p-px">
@@ -27,7 +26,8 @@ export default function LineStatusGrid({lines}:{lines:any[]}){
             <div className="text-xl font-semibold text-white mt-1 truncate">{s?.code||"—"}</div>
             <div className="mt-1.5 space-y-0.5 text-xs text-slate-300">
               <div className="truncate"><span className="text-slate-400">Installed </span>{date(s?.installed_at)}</div>
-              <div className="truncate"><span className="text-slate-400">Running </span>{runtimeLabel(s?.campaign_hours,s?.known_runtime_hours,s?.runtime_complete)}</div>
+              <div className="text-[11px] leading-snug"><span className="text-slate-400">Installed elapsed </span>{s?runtimeHours(installationElapsedHours(s,asOf)):"—"}</div>
+              <div className="text-[11px] leading-snug"><span className="text-slate-400">Actual mill run </span>{s?runtimeLabel(s.campaign_hours,s.known_runtime_hours,s.runtime_complete):"—"}</div>
               {life!=null&&<div className={`font-semibold ${life>=90?"text-rose-300":life>=75?"text-amber-300":"text-emerald-300"}`}><span className="text-slate-400 font-normal">Life </span>{life}%</div>}
             </div>
             <div className="mt-2 flex flex-wrap gap-1 min-h-[18px]">
